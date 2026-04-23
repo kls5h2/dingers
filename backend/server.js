@@ -330,13 +330,11 @@ async function callClaude(prompt) {
       "Content-Type": "application/json",
       "x-api-key": ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
-      "anthropic-beta": "web-search-2025-03-05",
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
-      system: "You are an MLB analytics expert. Respond ONLY with a valid JSON object. No markdown, no preamble.",
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      system: "You are an MLB analytics expert with deep knowledge of current players, stats, and matchups. Respond ONLY with a valid JSON object. No markdown, no preamble.",
       messages: [{ role: "user", content: prompt }],
     }),
   });
