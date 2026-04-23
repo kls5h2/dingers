@@ -330,7 +330,6 @@ async function callClaude(prompt) {
       "Content-Type": "application/json",
       "x-api-key": ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
-      "anthropic-beta": "interleaved-thinking-2025-01-01",
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
