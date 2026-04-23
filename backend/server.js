@@ -319,3 +319,65 @@ app.listen(PORT, () => {
   poll();
   setInterval(poll, POLL_INTERVAL);
 });
+
+// ── AI proxy routes (keeps Anthropic key server-side) ──────────────────────
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+
+async function callClaude(prompt) {
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "interleaved-thinking-2025-01-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      system: "You are an MLB analytics expert. Respond ONLY with a valid JSON object. No markdown, no preamble.",
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+  const data = await resp.json();
+  if (data.error) throw new Error(data.error.message);
+  const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  const start = text.indexOf("{");
+  if (start === -1) throw new Error("No JSON in response");
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") { depth--; if (depth === 0) return JSON.parse(text.slice(start, i + 1)); }
+  }
+  throw new Error("Malformed JSON");
+}
+
+app.post("/api/ai/plays", async (req, res) => {
+  try {
+    const { gamesList, today } = req.body;
+    const result = await callClaude(
+      `Today's MLB games: ${gamesList}. Today is ${today}.
+      Search for today's probable pitchers and recent HR hitters. Identify the top 5 players most likely to hit a home run today.
+      Return JSON: { "plays": [ { "player": string, "playerId": number|null, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L"|"R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH"|"MED"|"LOW", "hotStreak": boolean, "note": string } ] }`
+    );
+    res.json(result);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/ai/player-analysis", async (req, res) => {
+  try {
+    const { playerName, stats, info } = req.body;
+    const result = await callClaude(
+      `Given this real MLB stats data for ${playerName}, analyze their HR potential today.
+      Stats: ${JSON.stringify(stats)}
+      Player info: ${JSON.stringify(info)}
+      Return JSON: { "summary": string, "strengths": [string], "watchouts": [string], "confidence": "HIGH"|"MED"|"LOW", "reasoning": string }`
+    );
+    res.json(result);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});

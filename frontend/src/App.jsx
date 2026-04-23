@@ -1,9 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
-const CLAUDE_ENDPOINT = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-20250514";
-
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = (n, dec = 0) => n == null ? "—" : Number(n).toFixed(dec);
 const fmtAvg = (n) => n == null ? "—" : Number(n).toFixed(3).replace(/^0/, "");
@@ -25,24 +22,25 @@ function extractJSON(text) {
   return null;
 }
 
-async function aiAnalyze(prompt) {
-  const r = await fetch(CLAUDE_ENDPOINT, {
+// AI calls go through backend (keeps API key secure)
+async function aiPlays(gamesList, today) {
+  const r = await fetch(`${API}/api/ai/plays`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 2000,
-      system: "You are an MLB analytics expert. Given real MLB stats data, analyze and respond ONLY with a valid JSON object. No markdown, no preamble.",
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      messages: [{ role: "user", content: prompt }],
-    }),
+    body: JSON.stringify({ gamesList, today }),
   });
-  const data = await r.json();
-  if (data.error) throw new Error(data.error.message);
-  const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
-  const raw = extractJSON(text);
-  if (!raw) throw new Error("No JSON");
-  return JSON.parse(raw);
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+
+async function aiPlayerAnalysis(playerName, stats, info) {
+  const r = await fetch(`${API}/api/ai/player-analysis`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playerName, stats, info }),
+  });
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
 }
 
 // ── Design tokens ──────────────────────────────────────────────────────────
@@ -241,12 +239,7 @@ function DeepDive({ playerId, playerName, onClose }) {
   async function runAI(d) {
     setAiLoading(true);
     try {
-      const result = await aiAnalyze(
-        `Given this real MLB stats data for ${playerName}, analyze their HR potential today and return JSON:
-        Stats: ${JSON.stringify(d.stats)}
-        Player info: ${JSON.stringify(d.info)}
-        Return: { "summary": string, "strengths": [string], "watchouts": [string], "confidence": "HIGH"|"MED"|"LOW", "reasoning": string }`
-      );
+      const result = await aiPlayerAnalysis(playerName, d.stats, d.info);
       setAnalysis(result);
     } catch(e) { /* AI optional */ }
     setAiLoading(false);
@@ -537,11 +530,7 @@ export default function App() {
     try {
       const gamesData = await apiFetch("/api/today-games");
       const gamesList = gamesData.games?.slice(0, 5).map(g => `${g.awayAbb} @ ${g.homeAbb} (${g.venue}, park factor ${g.parkFactor})`).join(", ");
-      const result = await aiAnalyze(
-        `Today's MLB games: ${gamesList || "check schedule"}. Today is ${today}.
-        Search for today's probable pitchers and recent HR hitters. Identify the top 5 players most likely to hit a home run today.
-        Return JSON: { "plays": [ { "player": string, "playerId": number|null, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L"|"R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH"|"MED"|"LOW", "hotStreak": boolean, "note": string } ] }`
-      );
+      const result = await aiPlays(gamesList || "check MLB schedule", today);
       setPlays({ loading: false, data: result, error: null });
     } catch(e) {
       setPlays({ loading: false, data: null, error: e.message });
