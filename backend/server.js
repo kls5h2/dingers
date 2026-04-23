@@ -417,21 +417,36 @@ async function callClaude(prompt) {
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 2000,
-      system: "You are an MLB analytics expert with deep knowledge of current players, stats, and matchups. Respond ONLY with a valid JSON object. No markdown, no preamble.",
+      system: "You are an MLB analytics expert. Respond with ONLY a raw JSON object. No markdown fences, no ```json, no explanation, no preamble. Start with { end with }. Nothing else.",
       messages: [{ role: "user", content: prompt }],
     }),
   });
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message);
-  const text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  let text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  // Strip markdown fences
+  text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  // Find outermost { }
   const start = text.indexOf("{");
-  if (start === -1) throw new Error("No JSON in response");
+  if (start === -1) throw new Error("No JSON object in response");
   let depth = 0;
   for (let i = start; i < text.length; i++) {
     if (text[i] === "{") depth++;
-    else if (text[i] === "}") { depth--; if (depth === 0) return JSON.parse(text.slice(start, i + 1)); }
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch(parseErr) {
+          // Try to find next closing brace
+          console.error("[JSON parse attempt failed]", parseErr.message);
+        }
+      }
+    }
   }
-  throw new Error("Malformed JSON");
+  // Last resort: try parsing the whole cleaned text
+  try { return JSON.parse(text); } catch {}
+  throw new Error("Malformed JSON: " + text.slice(0, 100));
 }
 
 app.post("/api/ai/plays", async (req, res) => {
