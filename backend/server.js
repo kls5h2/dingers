@@ -353,14 +353,16 @@ async function callClaude(prompt) {
 
 app.post("/api/ai/plays", async (req, res) => {
   try {
-    const { gamesList, today } = req.body;
+    const gamesList = req.body?.gamesList || "today's MLB games";
+    const today = req.body?.today || new Date().toDateString();
+    console.log("[ai/plays] gamesList:", gamesList, "today:", today);
     const result = await callClaude(
-      `Today's MLB games: ${gamesList}. Today is ${today}.
-      Search for today's probable pitchers and recent HR hitters. Identify the top 5 players most likely to hit a home run today.
-      Return JSON: { "plays": [ { "player": string, "playerId": number|null, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L"|"R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH"|"MED"|"LOW", "hotStreak": boolean, "note": string } ] }`
+      `Today is ${today}. Based on current MLB 2026 season data, identify the top 5 players most likely to hit a home run today considering matchups, recent form, and park factors. Games today include: ${gamesList}.
+      Return JSON: { "plays": [ { "player": string, "playerId": null, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L", "last7HRs": number, "parkFactor": number, "confidence": "HIGH", "hotStreak": false, "note": string } ] }`
     );
     res.json(result);
   } catch(e) {
+    console.error("[ai/plays error]", e.message);
     res.status(500).json({ error: e.message });
   }
 });
