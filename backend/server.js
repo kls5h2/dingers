@@ -356,22 +356,11 @@ async function generatePlays(today, todayHRs) {
     console.log("[plays] games:", games.slice(0, 100));
 
     const result = await callClaude(
-      `Today is ${today}. MLB games today: ${games || "check schedule"}.
-      ${alreadyHit}
-
-      Based on your knowledge of the 2026 MLB season, identify the best HR prop bets still available today.
-      RULES:
-      - If a player already hit a HR today, do NOT include them (statistically far less likely to hit a second).
-      - Only include HIGH and MED and WATCH confidence — no PASS, no LOW.
-      - HIGH = clear edge: hot streak + favorable matchup + good park. Explain specifically why.
-      - MED = solid reason with one concern. Be honest about the concern.
-      - WATCH = interesting play but proceed with caution — explain the risk clearly.
-      - Each note must explain WHY this player, WHY today. Be specific. No generic descriptions.
-      - No limit on number — include all players genuinely worth betting.
-
-      Return JSON: { "plays": [ { "player": string, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L" or "R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH" or "MED" or "WATCH", "hotStreak": boolean, "note": string, "concern": string } ] }
-
-      concern field: for MED and WATCH, one honest sentence about the risk. Empty string for HIGH.`
+      `Today ${today}. Games: ${games}. ${alreadyHit}
+      Best HR props today. MAX 6 PLAYS. Confidence: HIGH/MED/WATCH only.
+      Notes max 15 words. Concerns max 10 words.
+      Skip anyone who already hit today.
+      JSON only: {"plays":[{"player":"","team":"","opponent":"","pitcher":"","pitcherHand":"L","last7HRs":0,"parkFactor":100,"confidence":"HIGH","hotStreak":false,"note":"","concern":""}]}`
     );
     playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
     console.log("[plays] generated", result?.plays?.length, "plays");
@@ -422,7 +411,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 4000,
+      max_tokens: 2000,
       system: "You are an MLB analytics expert. Respond with ONLY a raw JSON object. No markdown fences, no ```json, no explanation, no preamble. Start with { end with }. Nothing else.",
       messages: [{ role: "user", content: prompt }],
     }),
