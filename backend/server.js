@@ -16,6 +16,7 @@ const POLL_INTERVAL  = 60_000; // 60 seconds
 const seenHRs    = new Set(); // "gamePk-playId" already alerted
 let   liveHRs    = [];        // today's HRs in memory
 let   lastPoll   = null;
+let   isFirstPoll = true;     // skip push notifications on startup
 
 // ── MLB Stats API helpers ──────────────────────────────────────────────────
 const MLB = "https://statsapi.mlb.com/api/v1";
@@ -125,13 +126,14 @@ async function poll() {
         if (!liveHRs.find(h => h.id === hr.id)) {
           liveHRs.push(hr);
         }
-        // Alert only on new ones
+        // Alert only on new ones — skip on first poll (catch-up)
         if (!seenHRs.has(hr.id)) {
           seenHRs.add(hr.id);
-          newHRs.push(hr);
-          await sendPush(hr);
-          // small delay between pushes
-          await new Promise(r => setTimeout(r, 500));
+          if (!isFirstPoll) {
+            newHRs.push(hr);
+            await sendPush(hr);
+            await new Promise(r => setTimeout(r, 500));
+          }
         }
       }
     }
@@ -140,6 +142,7 @@ async function poll() {
     liveHRs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     if (newHRs.length) console.log(`[poll] +${newHRs.length} new HRs`);
+    isFirstPoll = false;
   } catch (e) {
     console.error("[poll error]", e.message);
   }
@@ -394,8 +397,11 @@ app.get("/api/ai/plays-cached", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Dingers backend running on port ${PORT}`);
-  poll();
-  setInterval(poll, POLL_INTERVAL);
+  // Delay initial poll so server stabilizes before hitting APIs
+  setTimeout(() => {
+    poll();
+    setInterval(poll, POLL_INTERVAL);
+  }, 3000);
 });
 
 // ── AI proxy routes (keeps Anthropic key server-side) ──────────────────────
