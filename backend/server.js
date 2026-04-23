@@ -325,6 +325,11 @@ app.get("/api/hr-leaders", async (req, res) => {
 });
 
 // Health check
+app.get("/api/clear-plays-cache", (req, res) => {
+  playsCache = { date: null, data: null, hrCount: 0, generating: false };
+  res.json({ ok: true, message: "plays cache cleared" });
+});
+
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, lastPoll, seenHRs: seenHRs.size });
 });
@@ -417,7 +422,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 2000,
+      max_tokens: 4000,
       system: "You are an MLB analytics expert. Respond with ONLY a raw JSON object. No markdown fences, no ```json, no explanation, no preamble. Start with { end with }. Nothing else.",
       messages: [{ role: "user", content: prompt }],
     }),
