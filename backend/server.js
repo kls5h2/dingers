@@ -332,7 +332,7 @@ async function callClaude(prompt) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 2000,
       system: "You are an MLB analytics expert with deep knowledge of current players, stats, and matchups. Respond ONLY with a valid JSON object. No markdown, no preamble.",
       messages: [{ role: "user", content: prompt }],
