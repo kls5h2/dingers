@@ -134,8 +134,7 @@ function TodayHRs({ hrs, loading, onPlayerClick }) {
 function PlayCard({ p, onPlayerClick }) {
   const [open, setOpen] = useState(false);
   const conf = p.confidence;
-  const c = CONF[conf];
-  if (!c) return null;
+  const c = CONF[conf] || CONF["MED"];
 
   return (
     <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, boxShadow: conf === "HIGH" ? "0 2px 8px rgba(200,16,46,0.08)" : "none", cursor: "pointer" }}>
@@ -450,9 +449,19 @@ export default function App() {
   const gamesToday  = games.data?.games || [];
   const yHRs        = yesterday.data?.hrs || [];
   const allPlays    = plays.data?.plays || [];
-  const highPlays   = allPlays.filter(p => p.confidence === "HIGH");
-  const medPlays    = allPlays.filter(p => p.confidence === "MED");
-  const watchPlays  = allPlays.filter(p => p.confidence === "WATCH");
+  // Normalize confidence to handle variations from AI
+  const normConf = (c) => {
+    if (!c) return "MED";
+    const u = c.toUpperCase().trim();
+    if (u === "HIGH") return "HIGH";
+    if (u === "MED" || u === "MEDIUM" || u === "MODERATE") return "MED";
+    if (u === "WATCH" || u === "CAUTION" || u === "LOW") return "WATCH";
+    return "MED";
+  };
+  const normalizedPlays = allPlays.map(p => ({ ...p, confidence: normConf(p.confidence) }));
+  const highPlays   = normalizedPlays.filter(p => p.confidence === "HIGH");
+  const medPlays    = normalizedPlays.filter(p => p.confidence === "MED");
+  const watchPlays  = normalizedPlays.filter(p => p.confidence === "WATCH");
 
   return (
     <div style={{ background: "#f3f4f6", minHeight: "100vh", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", maxWidth: 480, margin: "0 auto" }}>
