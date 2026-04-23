@@ -379,18 +379,31 @@ app.get("/api/ai/plays-cached", async (req, res) => {
   const today = new Date().toISOString().split("T")[0];
   const currentHRCount = liveHRs.length;
 
-  // Serve cache if: same day AND hr count hasn't changed
+  // Serve cache if fresh
   if (playsCache.date === today && playsCache.data && playsCache.hrCount === currentHRCount) {
     return res.json(playsCache.data);
   }
 
-  // Need to regenerate
-  try {
-    const result = await generatePlays(today, liveHRs);
-    res.json(result || playsCache.data);
-  } catch(e) {
-    // If generation fails but we have stale cache, return it
+  // If already generating, return stale cache or pending status
+  if (playsCache.generating) {
     if (playsCache.data) return res.json(playsCache.data);
+    return res.json({ plays: [], generating: true });
+  }
+
+  // Trigger background generation — respond immediately
+  if (playsCache.data) {
+    // Return stale data right away, regenerate in background
+    generatePlays(today, liveHRs).catch(e => console.error("[plays bg]", e.message));
+    return res.json(playsCache.data);
+  }
+
+  // No cache at all — wait for first generation (but with timeout)
+  try {
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
+    const result = await Promise.race([generatePlays(today, liveHRs), timeout]);
+    res.json(result || { plays: [] });
+  } catch(e) {
+    console.error("[plays] first-gen error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });

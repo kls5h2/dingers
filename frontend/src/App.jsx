@@ -412,7 +412,16 @@ export default function App() {
     apiFetch("/api/hr-leaders").then(d => setLeaders({ data: d })).catch(() => {});
     apiFetch("/api/yesterday-hrs").then(d => setYesterday({ loading: false, data: d })).catch(() => setYesterday({ loading: false, data: null }));
     setPlays({ loading: true, data: null, error: null });
-    apiFetch("/api/ai/plays-cached").then(d => setPlays({ loading: false, data: d, error: null })).catch(e => setPlays({ loading: false, data: null, error: e.message }));
+    apiFetch("/api/ai/plays-cached").then(d => {
+      if (d.generating) {
+        // Still generating - poll again in 10s
+        setTimeout(() => apiFetch("/api/ai/plays-cached")
+          .then(d2 => setPlays({ loading: false, data: d2, error: null }))
+          .catch(e => setPlays({ loading: false, data: null, error: e.message })), 10000);
+      } else {
+        setPlays({ loading: false, data: d, error: null });
+      }
+    }).catch(e => setPlays({ loading: false, data: null, error: e.message }));
     if (refresh) setTimeout(() => setRefreshing(false), 1200);
   }, []);
 
