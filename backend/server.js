@@ -314,6 +314,44 @@ app.get("/api/health", (req, res) => {
 });
 
 // ── Start ──────────────────────────────────────────────────────────────────
+
+// ── Daily plays cache ──────────────────────────────────────────────────────
+let playsCache = { date: null, data: null };
+
+app.get("/api/ai/plays-cached", async (req, res) => {
+  const today = new Date().toISOString().split("T")[0];
+  if (playsCache.date === today && playsCache.data) {
+    console.log("[plays-cached] serving from cache");
+    return res.json(playsCache.data);
+  }
+  try {
+    // Get real today's games first
+    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=team,venue`);
+    const games = (schedData.dates?.[0]?.games || []).map(g =>
+      `${g.teams?.away?.team?.abbreviation} @ ${g.teams?.home?.team?.abbreviation} at ${g.venue?.name} (park factor ${PARK_FACTORS[g.venue?.name]?.factor || 100})`
+    ).join("; ");
+
+    console.log("[plays-cached] generating for:", today);
+    const result = await callClaude(
+      `Today is ${today}. Today's MLB games: ${games || "check schedule"}.
+
+      Based on your knowledge of the 2026 MLB season, identify 8-10 players for HR prop bets today.
+      Be HONEST — if the matchup is bad, rate it PASS. Only HIGH if there is a clear edge.
+
+      For each player consider: recent HR form (last 7-14 days), pitcher handedness matchup, park factor, weather if relevant.
+
+      Return JSON: { "plays": [ { "player": string, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L" or "R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH" or "MED" or "LOW" or "PASS", "hotStreak": boolean, "note": string } ] }
+
+      Confidence guide: HIGH = clear edge, MED = slight edge, LOW = marginal, PASS = skip this one.`
+    );
+    playsCache = { date: today, data: result };
+    res.json(result);
+  } catch(e) {
+    console.error("[plays-cached error]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Dingers backend running on port ${PORT}`);
   poll();
