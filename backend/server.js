@@ -348,6 +348,7 @@ async function generatePlays(today, todayHRs) {
       : "No home runs yet today.";
 
     console.log("[plays] generating. HRs today:", todayHRs.length);
+    console.log("[plays] games:", games.slice(0, 100));
 
     const result = await callClaude(
       `Today is ${today}. MLB games today: ${games || "check schedule"}.
@@ -424,8 +425,13 @@ async function callClaude(prompt) {
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message);
   let text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
-  // Strip markdown fences
-  text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  console.log("[claude raw]", text.slice(0, 200));
+  // Strip any markdown or prose before/after JSON
+  text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+  // Remove any text before the first {
+  const firstBrace = text.indexOf("{");
+  if (firstBrace > 0) text = text.slice(firstBrace);
+  text = text.trim();
   // Find outermost { }
   const start = text.indexOf("{");
   if (start === -1) throw new Error("No JSON object in response");
