@@ -38,27 +38,29 @@ async function getTodayGames() {
 async function getGameHRs(gamePk) {
   const data = await mlb(`/game/${gamePk}/playByPlay`);
   const plays = data.allPlays || [];
+  const awayAbb = data.gameData?.teams?.away?.abbreviation || data.gameData?.teams?.away?.teamCode || "AWY";
+  const homeAbb = data.gameData?.teams?.home?.abbreviation || data.gameData?.teams?.home?.teamCode || "HME";
   return plays
     .filter(p => p.result?.eventType === "home_run")
-    .map(p => ({
-      id:       `${gamePk}-${p.atBatIndex}`,
-      gamePk,
-      player:   p.matchup?.batter?.fullName || "Unknown",
-      team:     p.about?.halfInning === "top"
-                  ? data.gameData?.teams?.away?.abbreviation
-                  : data.gameData?.teams?.home?.abbreviation,
-      opponent: p.about?.halfInning === "top"
-                  ? data.gameData?.teams?.home?.abbreviation
-                  : data.gameData?.teams?.away?.abbreviation,
-      inning:   p.about?.inning,
-      half:     p.about?.halfInning,
-      distance: p.hitData?.totalDistance || null,
-      exitVelo: p.hitData?.launchSpeed   || null,
-      launchAngle: p.hitData?.launchAngle || null,
-      description: p.result?.description || "",
-      timestamp: p.about?.endTime || new Date().toISOString(),
-      seasonHRs: null, // filled below
-    }));
+    .map(p => {
+      const isTop = p.about?.halfInning === "top";
+      return {
+        id:          `${gamePk}-${p.atBatIndex}`,
+        gamePk,
+        playerId:    p.matchup?.batter?.id || null,
+        player:      p.matchup?.batter?.fullName || "Unknown",
+        team:        isTop ? awayAbb : homeAbb,
+        opponent:    isTop ? homeAbb : awayAbb,
+        inning:      p.about?.inning,
+        half:        p.about?.halfInning,
+        distance:    p.hitData?.totalDistance || null,
+        exitVelo:    p.hitData?.launchSpeed   || null,
+        launchAngle: p.hitData?.launchAngle   || null,
+        description: p.result?.description    || "",
+        timestamp:   p.about?.endTime         || new Date().toISOString(),
+        seasonHRs:   null,
+      };
+    });
 }
 
 async function getPlayerSeasonHRs(playerId) {
