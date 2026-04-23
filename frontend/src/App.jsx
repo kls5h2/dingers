@@ -98,7 +98,10 @@ function Folder({ title, accent, badge, badgeColor, defaultOpen = false, childre
 }
 
 // ── Today's HR full list ───────────────────────────────────────────────────
-function TodayHRs({ hrs, onPlayerClick }) {
+function TodayHRs({ hrs, loading, onPlayerClick }) {
+  if (loading) return (
+    <div style={{ padding: "16px 0", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>Loading...</div>
+  );
   if (!hrs.length) return (
     <div style={{ padding: "16px 0", textAlign: "center", color: "#9ca3af", fontSize: 13 }}>No home runs yet today.</div>
   );
@@ -398,11 +401,13 @@ export default function App() {
   const [deepDive,   setDeepDive]   = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [prevHRCount, setPrevHRCount] = useState(0);
+  const [liveLoading, setLiveLoading] = useState(true);
   const pollRef = useRef(null);
   const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).toUpperCase();
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
+    apiFetch("/api/live-hrs").then(d => { setLiveHRs(d.hrs || []); setLiveLoading(false); }).catch(() => setLiveLoading(false));
     apiFetch("/api/today-games").then(d => setGames({ data: d })).catch(() => {});
     apiFetch("/api/park-factors").then(d => setParkData({ data: d })).catch(() => {});
     apiFetch("/api/hr-leaders").then(d => setLeaders({ data: d })).catch(() => {});
@@ -417,6 +422,7 @@ export default function App() {
       const d = await apiFetch("/api/live-hrs");
       const newHRs = d.hrs || [];
       setLiveHRs(newHRs);
+      setLiveLoading(false);
       // If HR count changed, regenerate plays
       if (newHRs.length !== prevHRCount) {
         setPrevHRCount(newHRs.length);
@@ -479,7 +485,7 @@ export default function App() {
 
         {/* Today's Live HRs */}
         <Folder title="TODAY'S HOME RUNS" accent="#10b981" badge={liveHRs.length || null} badgeColor="#059669" defaultOpen={true}>
-          <TodayHRs hrs={liveHRs} onPlayerClick={handlePlayerClick} />
+          <TodayHRs hrs={liveHRs} loading={liveLoading} onPlayerClick={handlePlayerClick} />
         </Folder>
 
         {/* Top Plays — HIGH */}

@@ -36,10 +36,23 @@ async function getTodayGames() {
 }
 
 async function getGameHRs(gamePk) {
-  const data = await mlb(`/game/${gamePk}/playByPlay`);
+  const [pbpData, boxData] = await Promise.all([
+    mlb(`/game/${gamePk}/playByPlay`),
+    mlb(`/game/${gamePk}/boxscore`),
+  ]);
+  const data = pbpData;
   const plays = data.allPlays || [];
-  const awayAbb = data.gameData?.teams?.away?.abbreviation || data.gameData?.teams?.away?.teamCode || "AWY";
-  const homeAbb = data.gameData?.teams?.home?.abbreviation || data.gameData?.teams?.home?.teamCode || "HME";
+  // Try multiple sources for abbreviation
+  const awayAbb =
+    boxData?.teams?.away?.team?.abbreviation ||
+    data.gameData?.teams?.away?.abbreviation ||
+    data.gameData?.teams?.away?.teamCode ||
+    "???";
+  const homeAbb =
+    boxData?.teams?.home?.team?.abbreviation ||
+    data.gameData?.teams?.home?.abbreviation ||
+    data.gameData?.teams?.home?.teamCode ||
+    "???";
   return plays
     .filter(p => p.result?.eventType === "home_run")
     .map(p => {
@@ -80,7 +93,8 @@ async function sendPush(hr) {
   const dist  = hr.distance   ? ` · ${hr.distance} ft`   : "";
   const velo  = hr.exitVelo   ? ` · ${hr.exitVelo} mph`   : "";
   const seas  = hr.seasonHRs  ? ` (#${hr.seasonHRs} this season)` : "";
-  const msg   = `${hr.player}${seas}\n${hr.team} vs ${hr.opponent} · Inn. ${hr.inning}${dist}${velo}`;
+  const teams = (hr.team && hr.opponent && !["AWY","HME","???"].includes(hr.team)) ? `${hr.team} vs ${hr.opponent} · ` : "";
+  const msg   = `${hr.player}${seas}\n${teams}Inn. ${hr.inning}${dist}${velo}`;
 
   await fetch("https://api.pushover.net/1/messages.json", {
     method: "POST",
@@ -317,39 +331,68 @@ app.get("/api/health", (req, res) => {
 
 // ── Start ──────────────────────────────────────────────────────────────────
 
-// ── Daily plays cache ──────────────────────────────────────────────────────
-let playsCache = { date: null, data: null };
+// ── Smart plays cache — regenerates when new HRs hit ─────────────────────
+let playsCache = { date: null, data: null, hrCount: 0, generating: false };
 
-app.get("/api/ai/plays-cached", async (req, res) => {
-  const today = new Date().toISOString().split("T")[0];
-  if (playsCache.date === today && playsCache.data) {
-    console.log("[plays-cached] serving from cache");
-    return res.json(playsCache.data);
-  }
+async function generatePlays(today, todayHRs) {
+  if (playsCache.generating) return; // prevent concurrent calls
+  playsCache.generating = true;
   try {
-    // Get real today's games first
     const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=team,venue`);
     const games = (schedData.dates?.[0]?.games || []).map(g =>
       `${g.teams?.away?.team?.abbreviation} @ ${g.teams?.home?.team?.abbreviation} at ${g.venue?.name} (park factor ${PARK_FACTORS[g.venue?.name]?.factor || 100})`
     ).join("; ");
 
-    console.log("[plays-cached] generating for:", today);
+    const alreadyHit = todayHRs.length
+      ? `Players who have ALREADY hit a HR today (downgrade or remove): ${[...new Set(todayHRs.map(h => h.player))].join(", ")}.`
+      : "No home runs yet today.";
+
+    console.log("[plays] generating. HRs today:", todayHRs.length);
+
     const result = await callClaude(
-      `Today is ${today}. Today's MLB games: ${games || "check schedule"}.
+      `Today is ${today}. MLB games today: ${games || "check schedule"}.
+      ${alreadyHit}
 
-      Based on your knowledge of the 2026 MLB season, identify 8-10 players for HR prop bets today.
-      Be HONEST — if the matchup is bad, rate it PASS. Only HIGH if there is a clear edge.
+      Based on your knowledge of the 2026 MLB season, identify the best HR prop bets still available today.
+      RULES:
+      - If a player already hit a HR today, do NOT include them (statistically far less likely to hit a second).
+      - Only include HIGH and MED and WATCH confidence — no PASS, no LOW.
+      - HIGH = clear edge: hot streak + favorable matchup + good park. Explain specifically why.
+      - MED = solid reason with one concern. Be honest about the concern.
+      - WATCH = interesting play but proceed with caution — explain the risk clearly.
+      - Each note must explain WHY this player, WHY today. Be specific. No generic descriptions.
+      - No limit on number — include all players genuinely worth betting.
 
-      For each player consider: recent HR form (last 7-14 days), pitcher handedness matchup, park factor, weather if relevant.
+      Return JSON: { "plays": [ { "player": string, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L" or "R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH" or "MED" or "WATCH", "hotStreak": boolean, "note": string, "concern": string } ] }
 
-      Return JSON: { "plays": [ { "player": string, "team": string, "opponent": string, "pitcher": string, "pitcherHand": "L" or "R", "last7HRs": number, "parkFactor": number, "confidence": "HIGH" or "MED" or "LOW" or "PASS", "hotStreak": boolean, "note": string } ] }
-
-      Confidence guide: HIGH = clear edge, MED = slight edge, LOW = marginal, PASS = skip this one.`
+      concern field: for MED and WATCH, one honest sentence about the risk. Empty string for HIGH.`
     );
-    playsCache = { date: today, data: result };
-    res.json(result);
+    playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
+    console.log("[plays] generated", result?.plays?.length, "plays");
+    return result;
   } catch(e) {
-    console.error("[plays-cached error]", e.message);
+    console.error("[plays] error:", e.message);
+    playsCache.generating = false;
+    throw e;
+  }
+}
+
+app.get("/api/ai/plays-cached", async (req, res) => {
+  const today = new Date().toISOString().split("T")[0];
+  const currentHRCount = liveHRs.length;
+
+  // Serve cache if: same day AND hr count hasn't changed
+  if (playsCache.date === today && playsCache.data && playsCache.hrCount === currentHRCount) {
+    return res.json(playsCache.data);
+  }
+
+  // Need to regenerate
+  try {
+    const result = await generatePlays(today, liveHRs);
+    res.json(result || playsCache.data);
+  } catch(e) {
+    // If generation fails but we have stale cache, return it
+    if (playsCache.data) return res.json(playsCache.data);
     res.status(500).json({ error: e.message });
   }
 });
