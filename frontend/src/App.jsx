@@ -10,9 +10,9 @@ const fmt = (n) => n == null ? "—" : Math.round(n);
 const fmtAvg = (n) => n == null ? "—" : Number(n).toFixed(3).replace(/^0/, "");
 
 const CONF = {
-  HIGH:  { label: "🔥 HIGH",  color: "#fff",    bg: "#c8102e", dot: "#c8102e", border: "#fecaca" },
-  MED:   { label: "👍 MED",   color: "#92400e", bg: "#fef3c7", dot: "#f59e0b", border: "#fde68a" },
-  WATCH: { label: "⚠️ WATCH", color: "#1e40af", bg: "#eff6ff", dot: "#3b82f6", border: "#bfdbfe" },
+  HIGH:  { label: "HIGH",    color: "#fff",    bg: "#c8102e", dot: "#c8102e", border: "#fecaca" },
+  MED:   { label: "MED",     color: "#92400e", bg: "#fef3c7", dot: "#f59e0b", border: "#fde68a" },
+  WATCH: { label: "WATCH",   color: "#1e40af", bg: "#eff6ff", dot: "#3b82f6", border: "#bfdbfe" },
 };
 
 function ConfBadge({ conf }) {
@@ -24,19 +24,28 @@ function ConfBadge({ conf }) {
 // ── Tabs ───────────────────────────────────────────────────────────────────
 function Tabs({ active, onChange }) {
   const tabs = [
-    { id: "today",  label: "TODAY"      },
-    { id: "plays",  label: "PLAYS"      },
-    { id: "stats",  label: "STATS"      },
-    { id: "history",label: "YESTERDAY"  },
+    { id: "today",   label: "TODAY"   },
+    { id: "plays",   label: "PLAYS"   },
+    { id: "stats",   label: "STATS"   },
+    { id: "history", label: "HISTORY" },
   ];
   return (
-    <div style={{ background: "#1a2f5e", display: "flex", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-      {tabs.map(t => (
-        <button key={t.id} onClick={() => onChange(t.id)}
-          style={{ flex: 1, background: "none", border: "none", color: active === t.id ? "#fff" : "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", padding: "10px 0", cursor: "pointer", borderBottom: active === t.id ? "2px solid #c8102e" : "2px solid transparent", transition: "all 0.15s" }}>
-          {t.label}
-        </button>
-      ))}
+    <div style={{ background: "#1a2f5e", padding: "8px 14px 12px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+      <div style={{ background: "rgba(0,0,0,0.28)", borderRadius: 10, padding: 3, display: "flex", gap: 2 }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => onChange(t.id)}
+            style={{
+              flex: 1, border: "none", cursor: "pointer",
+              background: active === t.id ? "#fff" : "transparent",
+              color: active === t.id ? "#1a2f5e" : "rgba(255,255,255,0.45)",
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+              padding: "7px 0", borderRadius: 8,
+              transition: "all 0.15s",
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -429,17 +438,20 @@ function PlayerSearch({ onSelect }) {
   );
 }
 
-// ── Section card ───────────────────────────────────────────────────────────
-function Section({ title, accent, children }) {
+// ── Section card (collapsible) ─────────────────────────────────────────────
+function Section({ title, accent, children, defaultOpen = true, badge }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
       {title && (
-        <div style={{ padding: "13px 16px 11px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "center", gap: 8 }}>
-          {accent && <div style={{ width: 3, height: 16, borderRadius: 2, background: accent }} />}
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.14em" }}>{title}</span>
+        <div onClick={() => setOpen(o => !o)} style={{ padding: "13px 16px 11px", borderBottom: open ? "1px solid #f3f4f6" : "none", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+          {accent && <div style={{ width: 3, height: 16, borderRadius: 2, background: accent, flexShrink: 0 }} />}
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.14em", flex: 1 }}>{title}</span>
+          {badge != null && <span style={{ fontSize: 11, fontWeight: 700, color: "#c8102e", background: "#fef2f2", borderRadius: 10, padding: "2px 8px" }}>{badge}</span>}
+          <span style={{ fontSize: 16, color: "#d1d5db", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.2s", lineHeight: 1 }}>›</span>
         </div>
       )}
-      <div style={{ padding: "0 16px 8px" }}>{children}</div>
+      {open && <div style={{ padding: "0 16px 8px" }}>{children}</div>}
     </div>
   );
 }
@@ -558,7 +570,7 @@ export default function App() {
         {tab === "today" && (
           <>
             <GamesSlate games={gamesToday} />
-            <Section title="TODAY'S HOME RUNS" accent="#10b981">
+            <Section title="TODAY'S HOME RUNS" accent="#10b981" badge={dedupedLive.length || null} defaultOpen={true}>
               <TodayHRs hrs={dedupedLive} loading={liveLoading} onPlayerClick={handlePlayerClick} />
             </Section>
           </>
@@ -574,21 +586,21 @@ export default function App() {
               <div style={{ background: "#fef2f2", borderRadius: 12, padding: 16, color: "#c8102e", fontSize: 13 }}>⚠ {plays.error}</div>
             )}
             {highPlays.length > 0 && (
-              <Section title="🔥 HIGH CONFIDENCE" accent="#c8102e">
+              <Section title="HIGH CONFIDENCE" accent="#c8102e" badge={highPlays.length} defaultOpen={true}>
                 <div style={{ paddingTop: 10 }}>
                   {highPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
                 </div>
               </Section>
             )}
             {medPlays.length > 0 && (
-              <Section title="👍 SOLID PLAYS" accent="#f59e0b">
+              <Section title="SOLID PLAYS" accent="#f59e0b" badge={medPlays.length} defaultOpen={true}>
                 <div style={{ paddingTop: 10 }}>
                   {medPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
                 </div>
               </Section>
             )}
             {watchPlays.length > 0 && (
-              <Section title="⚠️ PROCEED WITH CAUTION" accent="#3b82f6">
+              <Section title="PROCEED WITH CAUTION" accent="#3b82f6" badge={watchPlays.length} defaultOpen={false}>
                 <div style={{ paddingTop: 10 }}>
                   {watchPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
                 </div>
@@ -605,10 +617,10 @@ export default function App() {
           <>
             <PlayerSearch onSelect={handlePlayerClick} />
             {deepDive && <DeepDive playerId={deepDive.playerId} playerName={deepDive.playerName} onClose={() => setDeepDive(null)} />}
-            <Section title="CONDITIONS TODAY" accent="#f59e0b">
+            <Section title="CONDITIONS TODAY" accent="#f59e0b" defaultOpen={true}>
               <Conditions games={gamesToday} parkData={parkData.data} />
             </Section>
-            <Section title="SEASON HR LEADERS" accent="#c8102e">
+            <Section title="SEASON HR LEADERS" accent="#c8102e" defaultOpen={false}>
               <div>
                 {(leaders.data?.leaders || []).slice(0, 10).map((l, i) => (
                   <div key={i} onClick={() => l.playerId && handlePlayerClick({ playerId: l.playerId, playerName: l.player })}
@@ -630,7 +642,7 @@ export default function App() {
 
         {/* ── YESTERDAY TAB ── */}
         {tab === "history" && (
-          <Section title="YESTERDAY'S HOME RUNS" accent="#1a2f5e">
+          <Section title="YESTERDAY'S HOME RUNS" accent="#1a2f5e" badge={dedupedYest.length || null} defaultOpen={true}>
             {yesterday.loading && <div style={{ padding: "20px 0", textAlign: "center", color: "#9ca3af" }}>Loading...</div>}
             <div>
               {dedupedYest.map((hr, i) => (
