@@ -60,9 +60,9 @@ function GamesSlate({ games }) {
           const final = g.status?.includes("Final");
           const time  = new Date(g.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
           return (
-            <div key={i} style={{ flexShrink: 0, background: live ? "#f0fdf4" : "#f9fafb", borderRadius: 10, padding: "9px 11px", border: live ? "1.5px solid #10b981" : "1px solid #e5e7eb", minWidth: 100, textAlign: "center" }}>
+            <div key={i} style={{ flexShrink: 0, background: live ? "#f0fdf4" : final ? "#fff5f5" : "#f9fafb", borderRadius: 10, padding: "9px 11px", border: live ? "1.5px solid #10b981" : final ? "1px solid #fecaca" : "1px solid #e5e7eb", minWidth: 100, textAlign: "center" }}>
               {live  && <div style={{ fontSize: 9, fontWeight: 700, color: "#10b981", letterSpacing: "0.1em", marginBottom: 3 }}>● LIVE</div>}
-              {final && <div style={{ fontSize: 9, fontWeight: 700, color: "#9ca3af", letterSpacing: "0.1em", marginBottom: 3 }}>FINAL</div>}
+              {final && <div style={{ fontSize: 9, fontWeight: 700, color: "#c8102e", letterSpacing: "0.1em", marginBottom: 3 }}>■ FINAL</div>}
               {!live && !final && <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3 }}>{time}</div>}
               <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{g.awayAbb}</div>
               <div style={{ fontSize: 9, color: "#9ca3af", margin: "2px 0" }}>@</div>
@@ -112,9 +112,13 @@ function TodayHRs({ hrs, loading, onPlayerClick }) {
           style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < hrs.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
           <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}>💥</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{hr.player}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{hr.player}</div>
+              {hr.count > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#c8102e", borderRadius: 10, padding: "1px 7px" }}>{hr.count}x</span>}
+            </div>
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
-              {hr.team && hr.opponent ? `${hr.team} vs ${hr.opponent}` : hr.team || ""}
+              {hr.team ? <span style={{ fontWeight: 500, color: "#374151" }}>{hr.team}</span> : ""}
+              {hr.team && hr.opponent ? ` vs ${hr.opponent}` : ""}
               {hr.inning ? ` · Inn. ${hr.inning}` : ""}
               {hr.distance ? ` · ${fmt(hr.distance)} ft` : ""}
               {hr.exitVelo ? ` · ${fmt(hr.exitVelo)} mph` : ""}
@@ -402,7 +406,14 @@ export default function App() {
   const [prevHRCount, setPrevHRCount] = useState(0);
   const [liveLoading, setLiveLoading] = useState(true);
   const pollRef = useRef(null);
-  const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).toUpperCase();
+  // CST date — don't roll over until 11pm CT
+  const getCTDate = () => {
+    const now = new Date();
+    const ct = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+    // If before 11pm CT, use today; after 11pm still hold until midnight
+    return ct.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }).toUpperCase();
+  };
+  const today = getCTDate();
 
   const load = useCallback(async (refresh = false) => {
     if (refresh) setRefreshing(true);
@@ -456,6 +467,24 @@ export default function App() {
   }
 
   const gamesToday  = games.data?.games || [];
+
+  // Deduplicate today's HRs — if same player hit multiple, show count
+  const dedupeHRs = (hrs) => {
+    const map = new Map();
+    for (const hr of hrs) {
+      const key = hr.player;
+      if (map.has(key)) {
+        const existing = map.get(key);
+        existing.count = (existing.count || 1) + 1;
+        existing.seasonHRs = hr.seasonHRs; // keep latest
+      } else {
+        map.set(key, { ...hr, count: 1 });
+      }
+    }
+    return Array.from(map.values());
+  };
+  const dedupedLiveHRs = dedupeHRs(liveHRs);
+  const dedupedYestHRs = dedupeHRs(yHRs);
   const yHRs        = yesterday.data?.hrs || [];
   const allPlays    = plays.data?.plays || [];
   // Normalize confidence to handle variations from AI
@@ -502,8 +531,8 @@ export default function App() {
         {deepDive && <DeepDive playerId={deepDive.playerId} playerName={deepDive.playerName} onClose={() => setDeepDive(null)} />}
 
         {/* Today's Live HRs */}
-        <Folder title="TODAY'S HOME RUNS" accent="#10b981" badge={liveHRs.length || null} badgeColor="#059669" defaultOpen={true}>
-          <TodayHRs hrs={liveHRs} loading={liveLoading} onPlayerClick={handlePlayerClick} />
+        <Folder title="TODAY'S HOME RUNS" accent="#10b981" badge={dedupedLiveHRs.length || null} badgeColor="#059669" defaultOpen={true}>
+          <TodayHRs hrs={dedupedLiveHRs} loading={liveLoading} onPlayerClick={handlePlayerClick} />
         </Folder>
 
         {/* Top Plays — HIGH */}
@@ -538,9 +567,9 @@ export default function App() {
         {/* Yesterday's HRs */}
         <Folder title="YESTERDAY'S HRs" accent="#1a2f5e" badge={yHRs.length || null} defaultOpen={false}>
           <div>
-            {yHRs.map((hr, i) => (
+            {dedupedYestHRs.map((hr, i) => (
               <div key={hr.id || i} onClick={() => hr.playerId && handlePlayerClick({ playerId: hr.playerId, playerName: hr.player })}
-                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < yHRs.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
+                style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < dedupedYestHRs.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
                 <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}>💥</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{hr.player}</div>

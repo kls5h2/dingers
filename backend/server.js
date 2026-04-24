@@ -28,7 +28,21 @@ async function mlb(path) {
 }
 
 function todayStr() {
-  return new Date().toISOString().split("T")[0];
+  // Use Central Time, don't roll over to next day until 11pm CT
+  const now = new Date();
+  // CT is UTC-6 (CST) or UTC-5 (CDT) - use offset
+  const ctOffset = -6 * 60; // CST default
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  const ct = new Date(utc + ctOffset * 60000);
+  // If CT hour is before 23 (11pm), use CT date; otherwise still use CT date
+  // Don't roll over until 11pm CT
+  const ctHour = ct.getHours();
+  if (ctHour < 23) {
+    return ct.toISOString().split("T")[0];
+  } else {
+    // After 11pm CT — still use today's date (don't roll yet)
+    return ct.toISOString().split("T")[0];
+  }
 }
 
 async function getTodayGames() {
