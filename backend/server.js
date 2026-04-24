@@ -27,23 +27,32 @@ async function mlb(path) {
   return r.json();
 }
 
-function todayStr() {
-  // Use Central Time, don't roll over to next day until 11pm CT
+function getCTDate(offsetDays = 0) {
   const now = new Date();
-  // CT is UTC-6 (CST) or UTC-5 (CDT) - use offset
-  const ctOffset = -6 * 60; // CST default
-  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
-  const ct = new Date(utc + ctOffset * 60000);
-  // If CT hour is before 23 (11pm), use CT date; otherwise still use CT date
-  // Don't roll over until 11pm CT
-  const ctHour = ct.getHours();
-  if (ctHour < 23) {
-    return ct.toISOString().split("T")[0];
-  } else {
-    // After 11pm CT — still use today's date (don't roll yet)
-    return ct.toISOString().split("T")[0];
+  // Get current CT time string and parse it properly
+  const ctParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false
+  }).formatToParts(now);
+  const get = (type) => ctParts.find(p => p.type === type)?.value;
+  let year  = parseInt(get("year"));
+  let month = parseInt(get("month"));
+  let day   = parseInt(get("day"));
+  const hour = parseInt(get("hour"));
+  // Hold at current date until 11pm CT (don't roll to next day yet)
+  if (hour >= 23) {
+    // stay on current CT date — don't advance
   }
+  // Apply offset using Date math to handle month/year boundaries
+  const base = new Date(year, month - 1, day);
+  base.setDate(base.getDate() + offsetDays);
+  const yyyy = base.getFullYear();
+  const mm   = String(base.getMonth() + 1).padStart(2, "0");
+  const dd   = String(base.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
+
+function todayStr() { return getCTDate(0); }
 
 async function getTodayGames() {
   const data = await mlb(`/schedule?sportId=1&date=${todayStr()}&hydrate=linescore`);
@@ -247,9 +256,8 @@ app.get("/api/live-hrs", (req, res) => {
 
 app.get("/api/yesterday-hrs", async (req, res) => {
   try {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().split("T")[0];
+    const dateStr = getCTDate(-1);
+    console.log("[yesterday-hrs] fetching date:", dateStr, "today is:", todayStr());
 
     const data = await mlb(`/schedule?sportId=1&date=${dateStr}`);
     const pks = (data.dates?.[0]?.games || []).map(g => g.gamePk);
