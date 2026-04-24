@@ -469,6 +469,7 @@ export default function App() {
   const gamesToday  = games.data?.games || [];
 
   // Deduplicate today's HRs — if same player hit multiple, show count
+  const yHRs        = yesterday.data?.hrs || [];
   const dedupeHRs = (hrs) => {
     const map = new Map();
     for (const hr of hrs) {
@@ -476,7 +477,7 @@ export default function App() {
       if (map.has(key)) {
         const existing = map.get(key);
         existing.count = (existing.count || 1) + 1;
-        existing.seasonHRs = hr.seasonHRs; // keep latest
+        existing.seasonHRs = hr.seasonHRs;
       } else {
         map.set(key, { ...hr, count: 1 });
       }
@@ -485,7 +486,6 @@ export default function App() {
   };
   const dedupedLiveHRs = dedupeHRs(liveHRs);
   const dedupedYestHRs = dedupeHRs(yHRs);
-  const yHRs        = yesterday.data?.hrs || [];
   const allPlays    = plays.data?.plays || [];
   // Normalize confidence to handle variations from AI
   const normConf = (c) => {
