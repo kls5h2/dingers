@@ -48,35 +48,101 @@ function LiveBar({ hrs }) {
   );
 }
 
-// ── Games Slate ────────────────────────────────────────────────────────────
-function GamesSlate({ games }) {
-  if (!games?.length) return null;
+// ── Game Modal ─────────────────────────────────────────────────────────────
+function GameModal({ gamePk, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    apiFetch(`/api/game/${gamePk}`)
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [gamePk]);
+
+  const st = data?.status;
+  const hrs = data?.hrs || [];
+
   return (
-    <div style={{ background: "#fff", borderRadius: 16, padding: "14px 16px 10px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.14em", marginBottom: 10 }}>TODAY'S GAMES</div>
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, WebkitOverflowScrolling: "touch" }}>
-        {games.map((g, i) => {
-          const live  = g.status?.includes("Progress") || g.status?.includes("inning");
-          const final = g.status?.includes("Final");
-          const time  = new Date(g.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-          return (
-            <div key={i} style={{ flexShrink: 0, background: live ? "#f0fdf4" : final ? "#fff5f5" : "#f9fafb", borderRadius: 10, padding: "9px 11px", border: live ? "1.5px solid #10b981" : final ? "1px solid #fecaca" : "1px solid #e5e7eb", minWidth: 100, textAlign: "center" }}>
-              {live  && <div style={{ fontSize: 9, fontWeight: 700, color: "#10b981", letterSpacing: "0.1em", marginBottom: 3 }}>● LIVE</div>}
-              {final && <div style={{ fontSize: 9, fontWeight: 700, color: "#c8102e", letterSpacing: "0.1em", marginBottom: 3 }}>■ FINAL</div>}
-              {!live && !final && <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3 }}>{time}</div>}
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{g.awayAbb}</div>
-              <div style={{ fontSize: 9, color: "#9ca3af", margin: "2px 0" }}>@</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{g.homeAbb}</div>
-              {live && g.linescore?.runs && (
-                <div style={{ fontSize: 11, color: "#059669", marginTop: 3, fontWeight: 700 }}>
-                  {g.linescore.runs.away}–{g.linescore.runs.home}
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 200, display: "flex", alignItems: "flex-end" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: "16px 16px 0 0", width: "100%", maxHeight: "70vh", overflow: "auto", padding: 20 }}>
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            {st && <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>{st.awayAbb} @ {st.homeAbb}</div>}
+            {st && st.awayRuns != null && (
+              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                {st.awayRuns}–{st.homeRuns}
+                {st.inning ? ` · ${st.half === "top" ? "Top" : "Bot"} ${st.inning}` : " · Final"}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} style={{ background: "#f3f4f6", border: "none", borderRadius: "50%", width: 32, height: 32, cursor: "pointer", fontSize: 16 }}>×</button>
+        </div>
+
+        {loading && <div style={{ textAlign: "center", color: "#9ca3af", padding: 20 }}>Loading...</div>}
+
+        {!loading && !hrs.length && (
+          <div style={{ textAlign: "center", color: "#9ca3af", padding: 20, fontSize: 14 }}>No home runs in this game yet.</div>
+        )}
+
+        {hrs.length > 0 && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.14em", marginBottom: 10 }}>HOME RUNS THIS GAME</div>
+            {hrs.map((hr, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < hrs.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>💥</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{hr.player}</div>
+                  <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
+                    <span style={{ fontWeight: 600, color: "#374151" }}>{hr.team}</span>
+                    {` · ${hr.half === "top" ? "Top" : "Bot"} ${hr.inning}`}
+                    {hr.distance ? ` · ${hr.distance} ft` : ""}
+                    {hr.exitVelo ? ` · ${hr.exitVelo} mph` : ""}
+                  </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+// ── Games Slate ────────────────────────────────────────────────────────────
+function GamesSlate({ games }) {
+  const [selectedGame, setSelectedGame] = useState(null);
+  if (!games?.length) return null;
+  return (
+    <>
+      <div style={{ background: "#fff", borderRadius: 16, padding: "14px 16px 10px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.14em", marginBottom: 10 }}>TODAY'S GAMES</div>
+        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 6, WebkitOverflowScrolling: "touch" }}>
+          {games.map((g, i) => {
+            const live  = g.status?.includes("Progress") || g.status?.includes("inning");
+            const final = g.status?.includes("Final");
+            const time  = new Date(g.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+            return (
+              <div key={i} onClick={() => setSelectedGame(g.gamePk)}
+                style={{ flexShrink: 0, background: live ? "#f0fdf4" : final ? "#fff5f5" : "#f9fafb", borderRadius: 10, padding: "9px 11px", border: live ? "1.5px solid #10b981" : final ? "1px solid #fecaca" : "1px solid #e5e7eb", minWidth: 100, textAlign: "center", cursor: "pointer" }}>
+                {live  && <div style={{ fontSize: 9, fontWeight: 700, color: "#10b981", letterSpacing: "0.1em", marginBottom: 3 }}>● LIVE</div>}
+                {final && <div style={{ fontSize: 9, fontWeight: 700, color: "#c8102e", letterSpacing: "0.1em", marginBottom: 3 }}>■ FINAL</div>}
+                {!live && !final && <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3 }}>{time}</div>}
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{g.awayAbb}</div>
+                <div style={{ fontSize: 9, color: "#9ca3af", margin: "2px 0" }}>@</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{g.homeAbb}</div>
+                {(live || final) && g.linescore?.runs && (
+                  <div style={{ fontSize: 11, color: live ? "#059669" : "#c8102e", marginTop: 3, fontWeight: 700 }}>
+                    {g.linescore.runs.away}–{g.linescore.runs.home}
+                  </div>
+                )}
+                <div style={{ fontSize: 8, color: "#9ca3af", marginTop: 3 }}>tap for HRs</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {selectedGame && <GameModal gamePk={selectedGame} onClose={() => setSelectedGame(null)} />}
+    </>
   );
 }
 

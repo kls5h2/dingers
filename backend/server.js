@@ -350,6 +350,53 @@ app.get("/api/hr-leaders", async (req, res) => {
 });
 
 // Health check
+// ── Game detail — HRs hit so far + live status ────────────────────────────
+app.get("/api/game/:gamePk", async (req, res) => {
+  try {
+    const { gamePk } = req.params;
+    const [boxscore, pbp] = await Promise.all([
+      mlb(`/game/${gamePk}/boxscore`),
+      mlb(`/game/${gamePk}/playByPlay`),
+    ]);
+
+    const awayAbb = boxscore?.teams?.away?.team?.abbreviation || "?";
+    const homeAbb = boxscore?.teams?.home?.team?.abbreviation || "?";
+    const awayName = boxscore?.teams?.away?.team?.name || awayAbb;
+    const homeName = boxscore?.teams?.home?.team?.name || homeAbb;
+
+    // Get all HRs from play by play
+    const hrs = (pbp.allPlays || [])
+      .filter(p => p.result?.eventType === "home_run")
+      .map(p => {
+        const isTop = p.about?.halfInning === "top";
+        return {
+          player:   p.matchup?.batter?.fullName || "Unknown",
+          team:     isTop ? awayAbb : homeAbb,
+          teamName: isTop ? awayName : homeName,
+          inning:   p.about?.inning,
+          half:     p.about?.halfInning,
+          distance: p.hitData?.totalDistance ? Math.round(p.hitData.totalDistance) : null,
+          exitVelo: p.hitData?.launchSpeed   ? Math.round(p.hitData.launchSpeed)   : null,
+          description: p.result?.description || "",
+        };
+      });
+
+    // Current game state
+    const linescore = await mlb(`/game/${gamePk}/linescore`);
+    const status = {
+      inning:     linescore?.currentInning,
+      half:       linescore?.inningHalf,
+      awayRuns:   linescore?.teams?.away?.runs,
+      homeRuns:   linescore?.teams?.home?.runs,
+      awayAbb, homeAbb, awayName, homeName,
+    };
+
+    res.json({ hrs, status, gamePk });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/clear-plays-cache", (req, res) => {
   playsCache = { date: null, data: null, hrCount: 0, generating: false };
   res.json({ ok: true, message: "plays cache cleared" });
@@ -461,7 +508,6 @@ async function generatePlays(today, todayHRs) {
       const awayPP   = g.teams?.away?.probablePitcher;
       const homePP   = g.teams?.home?.probablePitcher;
 
-      // Fetch pitcher stats for both probable pitchers
       const [awayStats, homeStats] = await Promise.all([
         awayPP ? getPitcherStatcastSplits(awayPP.id) : null,
         homePP ? getPitcherStatcastSplits(homePP.id) : null,
@@ -469,17 +515,51 @@ async function generatePlays(today, todayHRs) {
 
       const fmtPitcher = (pp, stats) => {
         if (!pp) return "TBD";
-        const era  = stats?.era     ? `ERA ${stats.era}` : "";
-        const hr9  = stats?.hr9     ? `HR/9 ${parseFloat(stats.hr9).toFixed(2)}` : "";
-        const whip = stats?.whip    ? `WHIP ${stats.whip}` : "";
+        const era  = stats?.era  ? `ERA ${stats.era}` : "";
+        const hr9  = stats?.hr9  ? `HR/9 ${parseFloat(stats.hr9).toFixed(2)}` : "";
+        const whip = stats?.whip ? `WHIP ${stats.whip}` : "";
         const vsL  = stats?.vsLeft  ? `vsLHB avg ${stats.vsLeft.avg || "?"}` : "";
         const vsR  = stats?.vsRight ? `vsRHB avg ${stats.vsRight.avg || "?"}` : "";
         return `${pp.fullName} [${[era, hr9, whip, vsL, vsR].filter(Boolean).join(", ")}]`;
       };
 
+      // Get top HR hitters from each roster for this game
+      const getRosterHRLeaders = async (teamId) => {
+        try {
+          const year = new Date().getFullYear();
+          const roster = await mlb(`/teams/${teamId}/roster?rosterType=active`);
+          const players = (roster.roster || []).slice(0, 13); // position players
+          const stats = await Promise.all(
+            players.map(p => mlb(`/people/${p.person.id}/stats?stats=season&group=hitting&season=${year}`)
+              .then(d => {
+                const s = d.stats?.[0]?.splits?.[0]?.stat;
+                if (!s || !s.homeRuns || s.homeRuns < 2) return null;
+                const iso = s.slugging && s.avg ? (parseFloat(s.slugging) - parseFloat(s.avg)).toFixed(3) : "?";
+                return `${p.person.fullName}(${s.homeRuns}HR,ISO${iso},OPS${s.ops || "?"},L14:${s.homeRuns || "?"})`;
+              }).catch(() => null)
+            )
+          );
+          return stats.filter(Boolean).slice(0, 5).join("; ");
+        } catch { return ""; }
+      };
+
+      const awayTeamId = g.teams?.away?.team?.id;
+      const homeTeamId = g.teams?.home?.team?.id;
+      const [awayHitters, homeHitters] = await Promise.all([
+        awayTeamId ? getRosterHRLeaders(awayTeamId) : "",
+        homeTeamId ? getRosterHRLeaders(homeTeamId) : "",
+      ]);
+
       gameContexts.push(
-        `${awayAbb} @ ${homeAbb} at ${venue} (park ${parkF}) — ` +
-        `Away SP: ${fmtPitcher(awayPP, awayStats)} | Home SP: ${fmtPitcher(homePP, homeStats)}`
+        `${awayAbb} @ ${homeAbb} at ${venue} (park ${parkF})
+` +
+        `  Away SP: ${fmtPitcher(awayPP, awayStats)}
+` +
+        `  Home SP: ${fmtPitcher(homePP, homeStats)}
+` +
+        `  ${awayAbb} HR threats: ${awayHitters || "unknown"}
+` +
+        `  ${homeAbb} HR threats: ${homeHitters || "unknown"}`
       );
     }
 
