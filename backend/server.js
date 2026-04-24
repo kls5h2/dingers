@@ -342,31 +342,140 @@ app.get("/api/health", (req, res) => {
 // ── Smart plays cache — regenerates when new HRs hit ─────────────────────
 let playsCache = { date: null, data: null, hrCount: 0, generating: false };
 
+
+// ── Statcast data via Baseball Savant ──────────────────────────────────────
+async function getProbablePitchers(date) {
+  try {
+    const data = await mlb(`/schedule?sportId=1&date=${date}&hydrate=probablePitcher,team`);
+    const games = data.dates?.[0]?.games || [];
+    const pitchers = [];
+    for (const g of games) {
+      const awayPP = g.teams?.away?.probablePitcher;
+      const homePP = g.teams?.home?.probablePitcher;
+      const awayAbb = g.teams?.away?.team?.abbreviation || "";
+      const homeAbb = g.teams?.home?.team?.abbreviation || "";
+      if (awayPP) pitchers.push({ id: awayPP.id, name: awayPP.fullName, team: awayAbb, opponent: homeAbb, venue: g.venue?.name });
+      if (homePP) pitchers.push({ id: homePP.id, name: homePP.fullName, team: homeAbb, opponent: awayAbb, venue: g.venue?.name });
+    }
+    return pitchers;
+  } catch(e) {
+    console.error("[probable pitchers]", e.message);
+    return [];
+  }
+}
+
+async function getPitcherStatcastSplits(pitcherId) {
+  try {
+    const year = new Date().getFullYear();
+    // Get pitcher stats vs LHB and RHB
+    const [vsL, vsR, season] = await Promise.allSettled([
+      mlb(`/people/${pitcherId}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vl`),
+      mlb(`/people/${pitcherId}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vr`),
+      mlb(`/people/${pitcherId}/stats?stats=season&group=pitching&season=${year}`),
+    ]);
+    const extract = (r) => r.status === "fulfilled" ? r.value?.stats?.[0]?.splits?.[0]?.stat : null;
+    const s = extract(season);
+    return {
+      vsLeft:  extract(vsL),
+      vsRight: extract(vsR),
+      season:  s,
+      era:     s?.era,
+      whip:    s?.whip,
+      hr9:     s?.homeRunsPer9,
+      so9:     s?.strikeoutsPer9,
+    };
+  } catch(e) { return null; }
+}
+
+async function getHitterStatcastSplits(hitterId) {
+  try {
+    const year = new Date().getFullYear();
+    const [season, last14, vsL, vsR] = await Promise.allSettled([
+      mlb(`/people/${hitterId}/stats?stats=season&group=hitting&season=${year}`),
+      mlb(`/people/${hitterId}/stats?stats=lastXDays&group=hitting&season=${year}&limit=14`),
+      mlb(`/people/${hitterId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vl`),
+      mlb(`/people/${hitterId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vr`),
+    ]);
+    const extract = (r) => r.status === "fulfilled" ? r.value?.stats?.[0]?.splits?.[0]?.stat : null;
+    const s = extract(season);
+    const l14 = extract(last14);
+    return {
+      season: s,
+      last14: l14,
+      vsLeft: extract(vsL),
+      vsRight: extract(vsR),
+      avg: s?.avg,
+      ops: s?.ops,
+      hr: s?.homeRuns,
+      iso: s?.slugging && s?.avg ? (parseFloat(s.slugging) - parseFloat(s.avg)).toFixed(3) : null,
+      last14hr: l14?.homeRuns,
+      last14ops: l14?.ops,
+    };
+  } catch(e) { return null; }
+}
+
+// Search for player ID by name
+async function findPlayerId(name) {
+  try {
+    const data = await mlb(`/people/search?names=${encodeURIComponent(name)}&sportId=1`);
+    return data.people?.[0]?.id || null;
+  } catch { return null; }
+}
+
 async function generatePlays(today, todayHRs) {
-  if (playsCache.generating) return; // prevent concurrent calls
   playsCache.generating = true;
   try {
-    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=team,venue`);
-    const games = (schedData.dates?.[0]?.games || []).map(g =>
-      `${g.teams?.away?.team?.abbreviation} @ ${g.teams?.home?.team?.abbreviation} at ${g.venue?.name} (park factor ${PARK_FACTORS[g.venue?.name]?.factor || 100})`
-    ).join("; ");
+    // 1. Get today's schedule with probable pitchers
+    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue`);
+    const games = schedData.dates?.[0]?.games || [];
+
+    // 2. Build game context with real probable pitcher data
+    const gameContexts = [];
+    for (const g of games) {
+      const awayAbb  = g.teams?.away?.team?.abbreviation || "?";
+      const homeAbb  = g.teams?.home?.team?.abbreviation || "?";
+      const venue    = g.venue?.name || "?";
+      const parkF    = PARK_FACTORS[venue]?.factor || 100;
+      const awayPP   = g.teams?.away?.probablePitcher;
+      const homePP   = g.teams?.home?.probablePitcher;
+
+      // Fetch pitcher stats for both probable pitchers
+      const [awayStats, homeStats] = await Promise.all([
+        awayPP ? getPitcherStatcastSplits(awayPP.id) : null,
+        homePP ? getPitcherStatcastSplits(homePP.id) : null,
+      ]);
+
+      const fmtPitcher = (pp, stats) => {
+        if (!pp) return "TBD";
+        const era  = stats?.era     ? `ERA ${stats.era}` : "";
+        const hr9  = stats?.hr9     ? `HR/9 ${parseFloat(stats.hr9).toFixed(2)}` : "";
+        const whip = stats?.whip    ? `WHIP ${stats.whip}` : "";
+        const vsL  = stats?.vsLeft  ? `vsLHB avg ${stats.vsLeft.avg || "?"}` : "";
+        const vsR  = stats?.vsRight ? `vsRHB avg ${stats.vsRight.avg || "?"}` : "";
+        return `${pp.fullName} [${[era, hr9, whip, vsL, vsR].filter(Boolean).join(", ")}]`;
+      };
+
+      gameContexts.push(
+        `${awayAbb} @ ${homeAbb} at ${venue} (park ${parkF}) — ` +
+        `Away SP: ${fmtPitcher(awayPP, awayStats)} | Home SP: ${fmtPitcher(homePP, homeStats)}`
+      );
+    }
 
     const alreadyHit = todayHRs.length
-      ? `Players who have ALREADY hit a HR today (downgrade or remove): ${[...new Set(todayHRs.map(h => h.player))].join(", ")}.`
-      : "No home runs yet today.";
+      ? `Already hit HR today (exclude these): ${todayHRs.map(h => h.player).join(", ")}.`
+      : "";
 
-    console.log("[plays] generating. HRs today:", todayHRs.length);
-    console.log("[plays] games:", games.slice(0, 100));
+    const gamesStr = gameContexts.join("\n");
+    console.log("[plays] generating with real pitcher data. Games:", games.length, "HRs today:", todayHRs.length);
 
     const result = await callClaude(
-      `Today ${today}. Games: ${games}. ${alreadyHit}
-      Best HR props today. MAX 6 PLAYS. Confidence: HIGH/MED/WATCH only.
-      Notes max 15 words. Concerns max 10 words.
-      Skip anyone who already hit today.
-      JSON only: {"plays":[{"player":"","team":"","opponent":"","pitcher":"","pitcherHand":"L","last7HRs":0,"parkFactor":100,"confidence":"HIGH","hotStreak":false,"note":"","concern":""}]}`
+      `Today ${today}. MLB games with real pitcher stats:\n${gamesStr}\n\n${alreadyHit}\n\nUsing the real pitcher ERA, HR/9, WHIP, and splits above, identify the best HR prop bets today. Exclude anyone who already hit today.\nConfidence: HIGH=clear edge (low ERA, high HR/9, good park, hot hitter), MED=solid, WATCH=risky.\nMAX 8 PLAYS. Keep note under 20 words. Keep concern under 15 words.\nReturn JSON only: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
     );
-    playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
-    console.log("[plays] generated", result?.plays?.length, "plays");
+
+    if (result?.plays) {
+      playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
+      console.log("[plays] generated", result.plays.length, "plays with real pitcher data");
+    }
     return result;
   } catch(e) {
     console.error("[plays] error:", e.message);
@@ -374,6 +483,7 @@ async function generatePlays(today, todayHRs) {
     throw e;
   }
 }
+
 
 app.get("/api/ai/plays-cached", async (req, res) => {
   const today = new Date().toISOString().split("T")[0];
@@ -487,11 +597,21 @@ app.post("/api/ai/plays", async (req, res) => {
 app.post("/api/ai/player-analysis", async (req, res) => {
   try {
     const { playerName, stats, info } = req.body;
+    const iso = stats?.season?.slugging && stats?.season?.avg
+      ? (parseFloat(stats.season.slugging) - parseFloat(stats.season.avg)).toFixed(3)
+      : null;
+    const summary = [
+      `Season: ${stats?.season?.homeRuns ?? "?"}HR, avg ${stats?.season?.avg ?? "?"}, OPS ${stats?.season?.ops ?? "?"}`,
+      iso ? `ISO ${iso}` : "",
+      `Last 14 days: ${stats?.last14?.homeRuns ?? "?"}HR, OPS ${stats?.last14?.ops ?? "?"}`,
+      `vs LHP: ${stats?.vsLeft?.homeRuns ?? "?"}HR avg ${stats?.vsLeft?.avg ?? "?"}`,
+      `vs RHP: ${stats?.vsRight?.homeRuns ?? "?"}HR avg ${stats?.vsRight?.avg ?? "?"}`,
+      `Home: ${stats?.home?.homeRuns ?? "?"}HR | Away: ${stats?.away?.homeRuns ?? "?"}HR`,
+    ].filter(Boolean).join(" | ");
+
     const result = await callClaude(
-      `Given this real MLB stats data for ${playerName}, analyze their HR potential today.
-      Stats: ${JSON.stringify(stats)}
-      Player info: ${JSON.stringify(info)}
-      Return JSON: { "summary": string, "strengths": [string], "watchouts": [string], "confidence": "HIGH"|"MED"|"LOW", "reasoning": string }`
+      `Analyze ${playerName} HR potential today. Real 2026 stats: ${summary}. Bats: ${info?.batSide?.code ?? "?"}. Team: ${info?.currentTeam?.name ?? "?"}.
+      Return JSON: {"summary":string,"strengths":[string],"watchouts":[string],"confidence":"HIGH" or "MED" or "WATCH","reasoning":string}`
     );
     res.json(result);
   } catch(e) {
