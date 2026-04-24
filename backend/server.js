@@ -540,13 +540,31 @@ app.get("/api/ai/plays-cached", async (req, res) => {
   }
 });
 
+// ── Daily cache reset at midnight CT ──────────────────────────────────────
+function scheduleMidnightReset() {
+  const now = new Date();
+  const ctMidnight = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  ctMidnight.setHours(23, 0, 0, 0); // 11pm CT — reset for next day
+  let msUntil = ctMidnight - new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  if (msUntil < 0) msUntil += 24 * 60 * 60 * 1000; // already past, schedule for tomorrow
+  console.log(`[cache reset] scheduled in ${Math.round(msUntil / 60000)} minutes`);
+  setTimeout(() => {
+    console.log("[cache reset] clearing plays cache for new day");
+    playsCache = { date: null, data: null, hrCount: 0, generating: false };
+    seenHRs.clear();
+    liveHRs = [];
+    isFirstPoll = true;
+    scheduleMidnightReset(); // reschedule for next day
+  }, msUntil);
+}
+
 app.listen(PORT, () => {
   console.log(`Dingers backend running on port ${PORT}`);
-  // Delay initial poll so server stabilizes before hitting APIs
   setTimeout(() => {
     poll();
     setInterval(poll, POLL_INTERVAL);
   }, 3000);
+  scheduleMidnightReset();
 });
 
 // ── AI proxy routes (keeps Anthropic key server-side) ──────────────────────
