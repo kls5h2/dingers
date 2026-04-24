@@ -174,22 +174,27 @@ async function poll() {
 // ── Player deep dive ───────────────────────────────────────────────────────
 async function getPlayerStats(playerId) {
   const year = new Date().getFullYear();
-  const [season, last30, last14, last7, vsL, vsR, home, away] = await Promise.allSettled([
+  const [season, last14, last7, vsL, vsR, home, away] = await Promise.allSettled([
     mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}`),
-    mlb(`/people/${playerId}/stats?stats=lastXDays&group=hitting&season=${year}&limit=30`),
-    mlb(`/people/${playerId}/stats?stats=lastXDays&group=hitting&season=${year}&limit=14`),
-    mlb(`/people/${playerId}/stats?stats=lastXDays&group=hitting&season=${year}&limit=7`),
-    mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vl`),
-    mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vr`),
-    mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=h`),
-    mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=a`),
+    mlb(`/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${year}&gamePks=&limit=14`),
+    mlb(`/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${year}&gamePks=&limit=7`),
+    mlb(`/people/${playerId}/stats?stats=vsTeamTotal&group=hitting&season=${year}&opposingTeamId=&sitCodes=vl`),
+    mlb(`/people/${playerId}/stats?stats=vsTeamTotal&group=hitting&season=${year}&opposingTeamId=&sitCodes=vr`),
+    mlb(`/people/${playerId}/stats?stats=homeAndAway&group=hitting&season=${year}&sitCodes=h`),
+    mlb(`/people/${playerId}/stats?stats=homeAndAway&group=hitting&season=${year}&sitCodes=a`),
   ]);
 
-  const extract = (r) => r.status === "fulfilled" ? r.value?.stats?.[0]?.splits?.[0]?.stat : null;
+  const extract = (r) => {
+    if (r.status !== "fulfilled") return null;
+    const splits = r.value?.stats?.[0]?.splits;
+    return splits?.[0]?.stat || null;
+  };
+
+  const seasonStat = extract(season);
+  console.log("[getPlayerStats]", playerId, "season HR:", seasonStat?.homeRuns, "avg:", seasonStat?.avg);
 
   return {
-    season:  extract(season),
-    last30:  extract(last30),
+    season:  seasonStat,
     last14:  extract(last14),
     last7:   extract(last7),
     vsLeft:  extract(vsL),
@@ -717,21 +722,43 @@ app.post("/api/ai/plays", async (req, res) => {
 app.post("/api/ai/player-analysis", async (req, res) => {
   try {
     const { playerName, stats, info } = req.body;
-    const iso = stats?.season?.slugging && stats?.season?.avg
-      ? (parseFloat(stats.season.slugging) - parseFloat(stats.season.avg)).toFixed(3)
+    const s = stats?.season || {};
+    const l14 = stats?.last14 || {};
+    const vsL = stats?.vsLeft || {};
+    const vsR = stats?.vsRight || {};
+    const home = stats?.home || {};
+    const away = stats?.away || {};
+    const iso = s.slugging && s.avg
+      ? (parseFloat(s.slugging) - parseFloat(s.avg)).toFixed(3)
       : null;
-    const summary = [
-      `Season: ${stats?.season?.homeRuns ?? "?"}HR, avg ${stats?.season?.avg ?? "?"}, OPS ${stats?.season?.ops ?? "?"}`,
-      iso ? `ISO ${iso}` : "",
-      `Last 14 days: ${stats?.last14?.homeRuns ?? "?"}HR, OPS ${stats?.last14?.ops ?? "?"}`,
-      `vs LHP: ${stats?.vsLeft?.homeRuns ?? "?"}HR avg ${stats?.vsLeft?.avg ?? "?"}`,
-      `vs RHP: ${stats?.vsRight?.homeRuns ?? "?"}HR avg ${stats?.vsRight?.avg ?? "?"}`,
-      `Home: ${stats?.home?.homeRuns ?? "?"}HR | Away: ${stats?.away?.homeRuns ?? "?"}HR`,
-    ].filter(Boolean).join(" | ");
+
+    const lines = [
+      `Player: ${playerName}`,
+      `Team: ${info?.currentTeam?.name || "?"}`,
+      `Bats: ${info?.batSide?.description || "?"}`,
+      `Position: ${info?.primaryPosition?.abbreviation || "?"}`,
+      `2026 season: ${s.homeRuns ?? "0"}HR, .${(s.avg||"000").replace(".", "")} AVG, ${s.ops || "?"}OPS, ${s.gamesPlayed || "?"}G`,
+      iso ? `ISO: ${iso}` : null,
+      `Last 14 days: ${l14.homeRuns ?? "0"}HR, ${l14.ops || "?"}OPS`,
+      `vs LHP: ${vsL.homeRuns ?? "0"}HR, ${vsL.avg || "?"}AVG in ${vsL.gamesPlayed || "?"}G`,
+      `vs RHP: ${vsR.homeRuns ?? "0"}HR, ${vsR.avg || "?"}AVG in ${vsR.gamesPlayed || "?"}G`,
+      `Home: ${home.homeRuns ?? "0"}HR | Away: ${away.homeRuns ?? "0"}HR`,
+    ].filter(Boolean).join("\n");
+
+    console.log("[player-analysis] stats for", playerName, "season HR:", stats?.season?.homeRuns, "avg:", stats?.season?.avg, "ops:", stats?.season?.ops);
 
     const result = await callClaude(
-      `Analyze ${playerName} HR potential today. Real 2026 stats: ${summary}. Bats: ${info?.batSide?.code ?? "?"}. Team: ${info?.currentTeam?.name ?? "?"}.
-      Return JSON: {"summary":string,"strengths":[string],"watchouts":[string],"confidence":"HIGH" or "MED" or "WATCH","reasoning":string}`
+      `You are analyzing ${playerName} for an HR prop bet today. Use the stats below — even if some are zero or limited, give a real analysis based on what IS available. Do not say "insufficient data." If stats are low, explain what they suggest and what to watch for.
+
+Stats:
+${lines}
+
+Return JSON: {"summary":string,"strengths":[string],"watchouts":[string],"confidence":"HIGH" or "MED" or "WATCH"}
+
+- summary: 2-3 sentences on HR likelihood today
+- strengths: 1-3 specific reasons to like them
+- watchouts: 1-2 honest concerns
+- confidence based on available evidence`
     );
     res.json(result);
   } catch(e) {
