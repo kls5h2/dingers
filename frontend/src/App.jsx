@@ -617,7 +617,7 @@ export default function App() {
           <>
             <PlayerSearch onSelect={handlePlayerClick} />
             {deepDive && <DeepDive playerId={deepDive.playerId} playerName={deepDive.playerName} onClose={() => setDeepDive(null)} />}
-            <Section title="CONDITIONS TODAY" accent="#f59e0b" defaultOpen={true}>
+            <Section title="HR CONDITIONS" accent="#f59e0b" defaultOpen={true}>
               <Conditions games={gamesToday} parkData={parkData.data} />
             </Section>
             <Section title="SEASON HR LEADERS" accent="#c8102e" defaultOpen={false}>
