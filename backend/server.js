@@ -747,7 +747,7 @@ PICK the best HR props using ONLY the real data above:
 
 Return JSON only — no markdown, start with {:
 {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
-    );
+    , 4000);
 
     if (result?.plays) {
       playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
@@ -816,7 +816,7 @@ app.listen(PORT, () => {
 // ── AI proxy routes (keeps Anthropic key server-side) ──────────────────────
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
 
-async function callClaude(prompt) {
+async function callClaude(prompt, maxTokens = 2000) {
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -826,7 +826,7 @@ async function callClaude(prompt) {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 2000,
+      max_tokens: maxTokens,
       system: "You are an MLB analytics expert. Respond with ONLY a raw JSON object. No markdown fences, no ```json, no explanation, no preamble. Start with { end with }. Nothing else.",
       messages: [{ role: "user", content: prompt }],
     }),
