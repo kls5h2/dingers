@@ -723,9 +723,7 @@ async function generatePlays(today, todayHRs) {
       ? `EXCLUDE — already hit HR today: ${todayHRs.map(h => h.player).join(", ")}`
       : "";
 
-    const gamesStr = gameContexts.join("
-
-");
+    const gamesStr = gameContexts.join("\n\n");
     console.log("[plays] all data pulled. Games:", games.length, "Hitters cached:", Object.keys(hitterCache).length, "Pitchers cached:", Object.keys(pitcherCache).length);
 
     const result = await callClaude(
