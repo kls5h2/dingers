@@ -139,6 +139,17 @@ async function sendPush(hr) {
 async function poll() {
   try {
     lastPoll = new Date().toISOString();
+    const pollDate = getCTDate(0);
+
+    // Reset at start of new CT day
+    if (playsCache.date && playsCache.date !== pollDate) {
+      console.log("[poll] new day:", pollDate, "clearing all state");
+      playsCache = { date: null, data: null, hrCount: 0, generating: false };
+      seenHRs.clear();
+      liveHRs = [];
+      isFirstPoll = true;
+    }
+
     const gamePks = await getTodayGames();
     const newHRs  = [];
 
@@ -593,10 +604,19 @@ async function generatePlays(today, todayHRs) {
 
 
 app.get("/api/ai/plays-cached", async (req, res) => {
-  const today = new Date().toISOString().split("T")[0];
+  const today = getCTDate(0); // always use CT date
   const currentHRCount = liveHRs.length;
 
-  // Serve cache if fresh
+  // If cache is from a different day, clear it
+  if (playsCache.date && playsCache.date !== today) {
+    console.log("[plays] new day detected, clearing cache. was:", playsCache.date, "now:", today);
+    playsCache = { date: null, data: null, hrCount: 0, generating: false };
+    seenHRs.clear();
+    liveHRs = [];
+    isFirstPoll = true;
+  }
+
+  // Serve cache if fresh and HR count unchanged
   if (playsCache.date === today && playsCache.data && playsCache.hrCount === currentHRCount) {
     return res.json(playsCache.data);
   }
@@ -625,31 +645,12 @@ app.get("/api/ai/plays-cached", async (req, res) => {
   }
 });
 
-// ── Daily cache reset at midnight CT ──────────────────────────────────────
-function scheduleMidnightReset() {
-  const now = new Date();
-  const ctMidnight = new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-  ctMidnight.setHours(23, 0, 0, 0); // 11pm CT — reset for next day
-  let msUntil = ctMidnight - new Date(now.toLocaleString("en-US", { timeZone: "America/Chicago" }));
-  if (msUntil < 0) msUntil += 24 * 60 * 60 * 1000; // already past, schedule for tomorrow
-  console.log(`[cache reset] scheduled in ${Math.round(msUntil / 60000)} minutes`);
-  setTimeout(() => {
-    console.log("[cache reset] clearing plays cache for new day");
-    playsCache = { date: null, data: null, hrCount: 0, generating: false };
-    seenHRs.clear();
-    liveHRs = [];
-    isFirstPoll = true;
-    scheduleMidnightReset(); // reschedule for next day
-  }, msUntil);
-}
-
 app.listen(PORT, () => {
   console.log(`Dingers backend running on port ${PORT}`);
   setTimeout(() => {
     poll();
     setInterval(poll, POLL_INTERVAL);
   }, 3000);
-  scheduleMidnightReset();
 });
 
 // ── AI proxy routes (keeps Anthropic key server-side) ──────────────────────
