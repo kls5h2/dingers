@@ -413,6 +413,45 @@ app.get("/api/game/:gamePk", async (req, res) => {
   }
 });
 
+// ── 3-day HR analysis for improving plays ─────────────────────────────────
+app.get("/api/hr-analysis", async (req, res) => {
+  try {
+    const counts = {};
+    const details = {};
+    for (let i = 1; i <= 3; i++) {
+      const date = getCTDate(-i);
+      const sched = await mlb(`/schedule?sportId=1&date=${date}`);
+      const games = sched.dates?.[0]?.games || [];
+      for (const g of games) {
+        try {
+          const [pbp, box] = await Promise.all([
+            mlb(`/game/${g.gamePk}/playByPlay`),
+            mlb(`/game/${g.gamePk}/boxscore`),
+          ]);
+          const awayAbb = box?.teams?.away?.team?.abbreviation || "?";
+          const homeAbb = box?.teams?.home?.team?.abbreviation || "?";
+          for (const p of pbp.allPlays || []) {
+            if (p.result?.eventType === "home_run") {
+              const name = p.matchup?.batter?.fullName;
+              const id   = p.matchup?.batter?.id;
+              const isTop = p.about?.halfInning === "top";
+              counts[name] = (counts[name] || 0) + 1;
+              if (!details[name]) details[name] = { playerId: id, team: isTop ? awayAbb : homeAbb, dates: [] };
+              details[name].dates.push(date);
+            }
+          }
+        } catch {}
+      }
+    }
+    const sorted = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([player, count]) => ({ player, count, ...details[player] }));
+    res.json({ players: sorted, days: 3 });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/clear-plays-cache", (req, res) => {
   playsCache = { date: null, data: null, hrCount: 0, generating: false };
   res.json({ ok: true, message: "plays cache cleared" });
@@ -509,92 +548,215 @@ async function findPlayerId(name) {
 
 async function generatePlays(today, todayHRs) {
   playsCache.generating = true;
+  console.log("[plays] starting full data pull for", today);
+
   try {
-    // 1. Get today's schedule with probable pitchers
+    const year = new Date().getFullYear();
+
+    // ── Step 1: Schedule + probable pitchers ─────────────────────────────
     const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue`);
     const games = schedData.dates?.[0]?.games || [];
+    console.log("[plays] games today:", games.length);
 
-    // 2. Build game context with real probable pitcher data
+    // ── Step 2: Pull real pitcher data ────────────────────────────────────
+    const pitcherCache = {};
+    async function getRealPitcherData(pp) {
+      if (!pp?.id) return null;
+      if (pitcherCache[pp.id]) return pitcherCache[pp.id];
+      try {
+        const [info, seasonStats, vsL, vsR] = await Promise.allSettled([
+          mlb(`/people/${pp.id}`),
+          mlb(`/people/${pp.id}/stats?stats=season&group=pitching&season=${year}`),
+          mlb(`/people/${pp.id}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vl`),
+          mlb(`/people/${pp.id}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vr`),
+        ]);
+        const s  = seasonStats.status === "fulfilled" ? seasonStats.value?.stats?.[0]?.splits?.[0]?.stat : null;
+        const sl = vsL.status === "fulfilled" ? vsL.value?.stats?.[0]?.splits?.[0]?.stat : null;
+        const sr = vsR.status === "fulfilled" ? vsR.value?.stats?.[0]?.splits?.[0]?.stat : null;
+        const hand = info.status === "fulfilled" ? info.value?.people?.[0]?.pitchHand?.code : "?";
+        const result = {
+          name: pp.fullName,
+          hand,
+          era:    s?.era    || "?",
+          whip:   s?.whip   || "?",
+          hr9:    s?.homeRunsPer9 ? parseFloat(s.homeRunsPer9).toFixed(2) : "?",
+          vsLHB:  sl ? `avg ${sl.avg || "?"} HR/9 ${sl.homeRunsPer9 ? parseFloat(sl.homeRunsPer9).toFixed(2) : "?"}` : "?",
+          vsRHB:  sr ? `avg ${sr.avg || "?"} HR/9 ${sr.homeRunsPer9 ? parseFloat(sr.homeRunsPer9).toFixed(2) : "?"}` : "?",
+        };
+        pitcherCache[pp.id] = result;
+        return result;
+      } catch { return null; }
+    }
+
+    // ── Step 3: Pull real hitter data per team ────────────────────────────
+    const hitterCache = {};
+    async function getRealHitterData(playerId, name) {
+      if (hitterCache[playerId]) return hitterCache[playerId];
+      try {
+        const [info, season, last7, vsL, vsR] = await Promise.allSettled([
+          mlb(`/people/${playerId}`),
+          mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}`),
+          mlb(`/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${year}&limit=7`),
+          mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vl`),
+          mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vr`),
+        ]);
+        const s   = season.status  === "fulfilled" ? season.value?.stats?.[0]?.splits?.[0]?.stat  : null;
+        const l7  = last7.status   === "fulfilled" ? last7.value?.stats?.[0]?.splits?.[0]?.stat   : null;
+        const sl  = vsL.status     === "fulfilled" ? vsL.value?.stats?.[0]?.splits?.[0]?.stat     : null;
+        const sr  = vsR.status     === "fulfilled" ? vsR.value?.stats?.[0]?.splits?.[0]?.stat     : null;
+        const bats = info.status   === "fulfilled" ? info.value?.people?.[0]?.batSide?.code : "?";
+        const seasonHR = parseInt(s?.homeRuns || 0);
+        if (seasonHR < 1) return null; // skip non-power hitters
+        const iso = s?.slugging && s?.avg
+          ? (parseFloat(s.slugging) - parseFloat(s.avg)).toFixed(3) : "?";
+        const result = {
+          name,
+          playerId,
+          bats,
+          seasonHR,
+          avg:    s?.avg    || "?",
+          ops:    s?.ops    || "?",
+          iso,
+          last7HR: parseInt(l7?.homeRuns || 0),
+          last7OPS: l7?.ops || "?",
+          vsLHP_HR: parseInt(sl?.homeRuns || 0),
+          vsRHP_HR: parseInt(sr?.homeRuns || 0),
+          vsLHP_avg: sl?.avg || "?",
+          vsRHP_avg: sr?.avg || "?",
+        };
+        hitterCache[playerId] = result;
+        return result;
+      } catch { return null; }
+    }
+
+    async function getTeamHitters(teamId) {
+      try {
+        const roster = await mlb(`/teams/${teamId}/roster?rosterType=active`);
+        const posPlayers = (roster.roster || [])
+          .filter(p => !["P","TWP"].includes(p.position?.type));
+        const hitters = [];
+        // Fetch in batches of 4 to be respectful of rate limits
+        for (let i = 0; i < posPlayers.length; i += 4) {
+          const batch = posPlayers.slice(i, i + 4);
+          const results = await Promise.all(
+            batch.map(p => getRealHitterData(p.person.id, p.person.fullName))
+          );
+          hitters.push(...results.filter(Boolean));
+          await new Promise(r => setTimeout(r, 100)); // small delay between batches
+        }
+        return hitters.sort((a, b) => b.seasonHR - a.seasonHR).slice(0, 7);
+      } catch { return []; }
+    }
+
+    // ── Step 4: Pull last 3 days real HR leaders ──────────────────────────
+    const recentHRCounts = {};
+    for (let i = 1; i <= 3; i++) {
+      const date = getCTDate(-i);
+      try {
+        const sched = await mlb(`/schedule?sportId=1&date=${date}`);
+        const dayGames = sched.dates?.[0]?.games || [];
+        for (const g of dayGames) {
+          try {
+            const pbp = await mlb(`/game/${g.gamePk}/playByPlay`);
+            for (const p of pbp.allPlays || []) {
+              if (p.result?.eventType === "home_run") {
+                const name = p.matchup?.batter?.fullName;
+                recentHRCounts[name] = (recentHRCounts[name] || 0) + 1;
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+    const recentHRLeaders = Object.entries(recentHRCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([name, count]) => `${name}(${count}HR)`)
+      .join(", ");
+    console.log("[plays] recent HR leaders:", recentHRLeaders.slice(0, 150));
+
+    // ── Step 5: Build game contexts with all real data ────────────────────
     const gameContexts = [];
     for (const g of games) {
-      const awayAbb  = g.teams?.away?.team?.abbreviation || "?";
-      const homeAbb  = g.teams?.home?.team?.abbreviation || "?";
-      const venue    = g.venue?.name || "?";
-      const parkF    = PARK_FACTORS[venue]?.factor || 100;
-      const awayPP   = g.teams?.away?.probablePitcher;
-      const homePP   = g.teams?.home?.probablePitcher;
+      const awayAbb = g.teams?.away?.team?.abbreviation || "?";
+      const homeAbb = g.teams?.home?.team?.abbreviation || "?";
+      const venue   = g.venue?.name || "?";
+      const parkF   = PARK_FACTORS[venue]?.factor || 100;
+      const awayPP  = g.teams?.away?.probablePitcher;
+      const homePP  = g.teams?.home?.probablePitcher;
 
-      const [awayStats, homeStats] = await Promise.all([
-        awayPP ? getPitcherStatcastSplits(awayPP.id) : null,
-        homePP ? getPitcherStatcastSplits(homePP.id) : null,
+      const [awayPitcher, homePitcher, awayHitters, homeHitters] = await Promise.all([
+        getRealPitcherData(awayPP),
+        getRealPitcherData(homePP),
+        g.teams?.away?.team?.id ? getTeamHitters(g.teams.away.team.id) : [],
+        g.teams?.home?.team?.id ? getTeamHitters(g.teams.home.team.id) : [],
       ]);
 
       const fmtPitcher = (pp, stats) => {
-        if (!pp) return "TBD";
-        const era  = stats?.era  ? `ERA ${stats.era}` : "";
-        const hr9  = stats?.hr9  ? `HR/9 ${parseFloat(stats.hr9).toFixed(2)}` : "";
-        const whip = stats?.whip ? `WHIP ${stats.whip}` : "";
-        const vsL  = stats?.vsLeft  ? `vsLHB avg ${stats.vsLeft.avg || "?"}` : "";
-        const vsR  = stats?.vsRight ? `vsRHB avg ${stats.vsRight.avg || "?"}` : "";
-        return `${pp.fullName} [${[era, hr9, whip, vsL, vsR].filter(Boolean).join(", ")}]`;
+        if (!pp && !stats) return "TBD";
+        const name = stats?.name || pp?.fullName || "TBD";
+        if (!stats) return name;
+        return `${name}(${stats.hand}) ERA:${stats.era} HR/9:${stats.hr9} WHIP:${stats.whip} vsLHB:[${stats.vsLHB}] vsRHB:[${stats.vsRHB}]`;
       };
 
-      // Get top HR hitters from each roster for this game
-      const getRosterHRLeaders = async (teamId) => {
-        try {
-          const year = new Date().getFullYear();
-          const roster = await mlb(`/teams/${teamId}/roster?rosterType=active`);
-          const players = (roster.roster || []).slice(0, 13); // position players
-          const stats = await Promise.all(
-            players.map(p => mlb(`/people/${p.person.id}/stats?stats=season&group=hitting&season=${year}`)
-              .then(d => {
-                const s = d.stats?.[0]?.splits?.[0]?.stat;
-                if (!s || !s.homeRuns || s.homeRuns < 2) return null;
-                const iso = s.slugging && s.avg ? (parseFloat(s.slugging) - parseFloat(s.avg)).toFixed(3) : "?";
-                return `${p.person.fullName}(${s.homeRuns}HR,ISO${iso},OPS${s.ops || "?"},L14:${s.homeRuns || "?"})`;
-              }).catch(() => null)
-            )
-          );
-          return stats.filter(Boolean).slice(0, 5).join("; ");
-        } catch { return ""; }
-      };
+      const fmtHitter = (h) =>
+        `${h.name}(${h.bats}) ${h.seasonHR}HR .${(h.avg||"000").replace(".","").slice(0,3)}AVG ${h.ops}OPS ISO${h.iso} L7:${h.last7HR}HR vsL:${h.vsLHP_HR}HR vsR:${h.vsRHP_HR}HR`;
 
-      const awayTeamId = g.teams?.away?.team?.id;
-      const homeTeamId = g.teams?.home?.team?.id;
-      const [awayHitters, homeHitters] = await Promise.all([
-        awayTeamId ? getRosterHRLeaders(awayTeamId) : "",
-        homeTeamId ? getRosterHRLeaders(homeTeamId) : "",
-      ]);
+      const awayHitterStr = awayHitters.map(fmtHitter).join(" | ");
+      const homeHitterStr = homeHitters.map(fmtHitter).join(" | ");
 
       gameContexts.push(
-        `${awayAbb} @ ${homeAbb} at ${venue} (park ${parkF})
+        `${awayAbb}@${homeAbb} at ${venue}(park ${parkF})
 ` +
-        `  Away SP: ${fmtPitcher(awayPP, awayStats)}
+        `  Away SP: ${fmtPitcher(awayPP, awayPitcher)}
 ` +
-        `  Home SP: ${fmtPitcher(homePP, homeStats)}
+        `  Home SP: ${fmtPitcher(homePP, homePitcher)}
 ` +
-        `  ${awayAbb} HR threats: ${awayHitters || "unknown"}
+        `  ${awayAbb} hitters: ${awayHitterStr || "none"}
 ` +
-        `  ${homeAbb} HR threats: ${homeHitters || "unknown"}`
+        `  ${homeAbb} hitters: ${homeHitterStr || "none"}`
       );
     }
 
+    // ── Step 6: Build prompt with all real data ───────────────────────────
     const alreadyHit = todayHRs.length
-      ? `Already hit HR today (exclude these): ${todayHRs.map(h => h.player).join(", ")}.`
+      ? `EXCLUDE — already hit HR today: ${todayHRs.map(h => h.player).join(", ")}`
       : "";
 
-    const gamesStr = gameContexts.join("\n");
-    console.log("[plays] generating with real pitcher data. Games:", games.length, "HRs today:", todayHRs.length);
+    const gamesStr = gameContexts.join("
+
+");
+    console.log("[plays] all data pulled. Games:", games.length, "Hitters cached:", Object.keys(hitterCache).length, "Pitchers cached:", Object.keys(pitcherCache).length);
 
     const result = await callClaude(
-      `Today ${today}. MLB games with real pitcher stats:\n${gamesStr}\n\n${alreadyHit}\n\nUsing the real pitcher ERA, HR/9, WHIP, and splits above, identify the best HR prop bets today. Exclude anyone who already hit today.\nConfidence: HIGH=clear edge (low ERA, high HR/9, good park, hot hitter), MED=solid, WATCH=risky.\nMAX 8 PLAYS. Keep note under 20 words. Keep concern under 15 words.\nReturn JSON only: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
+      `Today ${today}. All data below is REAL — from MLB Stats API pulled today. Do NOT use your training data for player stats. Only use the numbers provided.
+
+REAL GAME DATA (pitcher ERA/HR9/splits + hitter HR/AVG/OPS/ISO/last7HR/vsL/vsR):
+${gamesStr}
+
+HOTTEST BATS last 3 days (real play-by-play):
+${recentHRLeaders || "unavailable"}
+
+${alreadyHit}
+
+PICK the best HR props using ONLY the real data above:
+- HIGH: player with 3+ last7HR OR top recent HR list + faces pitcher with HR/9 > 1.3 + park >= 95. Must be playing today.
+- MED: 1-2 last7HR + favorable pitcher splits for their handedness + decent park
+- WATCH: low recent HR but matchup is good, flag the concern honestly
+- Do NOT include players not listed in today's games above
+- Do NOT use any stats not provided above
+- ${alreadyHit ? "Do NOT include players who already hit today" : ""}
+
+Return JSON only — no markdown, start with {:
+{"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
     );
 
     if (result?.plays) {
       playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
-      console.log("[plays] generated", result.plays.length, "plays with real pitcher data");
+      console.log("[plays] generated", result.plays.length, "plays. Hitters pulled:", Object.keys(hitterCache).length);
     }
     return result;
+
   } catch(e) {
     console.error("[plays] error:", e.message);
     playsCache.generating = false;
