@@ -648,34 +648,7 @@ async function generatePlays(today, todayHRs) {
       } catch { return []; }
     }
 
-    // ── Step 4: Pull last 3 days real HR leaders ──────────────────────────
-    const recentHRCounts = {};
-    for (let i = 1; i <= 3; i++) {
-      const date = getCTDate(-i);
-      try {
-        const sched = await mlb(`/schedule?sportId=1&date=${date}`);
-        const dayGames = sched.dates?.[0]?.games || [];
-        for (const g of dayGames) {
-          try {
-            const pbp = await mlb(`/game/${g.gamePk}/playByPlay`);
-            for (const p of pbp.allPlays || []) {
-              if (p.result?.eventType === "home_run") {
-                const name = p.matchup?.batter?.fullName;
-                recentHRCounts[name] = (recentHRCounts[name] || 0) + 1;
-              }
-            }
-          } catch {}
-        }
-      } catch {}
-    }
-    const recentHRLeaders = Object.entries(recentHRCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 20)
-      .map(([name, count]) => `${name}(${count}HR)`)
-      .join(", ");
-    console.log("[plays] recent HR leaders:", recentHRLeaders.slice(0, 150));
-
-    // ── Step 5: Build game contexts with all real data ────────────────────
+    // ── Step 4: Build game contexts with all real data ──────────────────────
     const gameContexts = [];
     for (const g of games) {
       const awayAbb = g.teams?.away?.team?.abbreviation || "?";
@@ -696,11 +669,11 @@ async function generatePlays(today, todayHRs) {
         if (!pp && !stats) return "TBD";
         const name = stats?.name || pp?.fullName || "TBD";
         if (!stats) return name;
-        return `${name}(${stats.hand}) ERA:${stats.era} HR/9:${stats.hr9} WHIP:${stats.whip} vsLHB:[${stats.vsLHB}] vsRHB:[${stats.vsRHB}]`;
+        return `${name}(${stats.hand},ERA:${stats.era},HR9:${stats.hr9},vsL:${stats.vsLHB},vsR:${stats.vsRHB})`;
       };
 
       const fmtHitter = (h) =>
-        `${h.name}(${h.bats}) ${h.seasonHR}HR .${(h.avg||"000").replace(".","").slice(0,3)}AVG ${h.ops}OPS ISO${h.iso} L7:${h.last7HR}HR vsL:${h.vsLHP_HR}HR vsR:${h.vsRHP_HR}HR`;
+        `${h.name}(${h.bats},${h.seasonHR}HR,L7:${h.last7HR}HR,OPS:${h.ops},vsL:${h.vsLHP_HR},vsR:${h.vsRHP_HR})`;
 
       const awayHitterStr = awayHitters.map(fmtHitter).join(" | ");
       const homeHitterStr = homeHitters.map(fmtHitter).join(" | ");
@@ -731,9 +704,6 @@ async function generatePlays(today, todayHRs) {
 
 REAL GAME DATA (pitcher ERA/HR9/splits + hitter HR/AVG/OPS/ISO/last7HR/vsL/vsR):
 ${gamesStr}
-
-HOTTEST BATS last 3 days (real play-by-play):
-${recentHRLeaders || "unavailable"}
 
 ${alreadyHit}
 
