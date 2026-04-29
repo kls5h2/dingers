@@ -452,6 +452,49 @@ app.get("/api/hr-analysis", async (req, res) => {
   }
 });
 
+// ── Test Baseball Savant access ───────────────────────────────────────────
+app.get("/api/test-statcast/:playerId", async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const year = new Date().getFullYear();
+    // Test various stat groups MLB API offers
+    const [statcast, advanced, sabermetrics] = await Promise.allSettled([
+      mlb(`/people/${playerId}/stats?stats=statsSingleSeason&group=hitting&season=${year}&fields=stats,splits,stat,exitVelocity,launchAngle,barrelBattedRate,hardHitPercent`),
+      mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}&sportId=1`),
+      mlb(`/people/${playerId}/stats?stats=sabermetrics&group=hitting&season=${year}`),
+    ]);
+    res.json({
+      statcast: statcast.status === "fulfilled" ? statcast.value?.stats?.[0]?.splits?.[0]?.stat : statcast.reason?.message,
+      advanced: advanced.status === "fulfilled" ? advanced.value?.stats?.[0]?.splits?.[0]?.stat : advanced.reason?.message,
+      sabermetrics: sabermetrics.status === "fulfilled" ? sabermetrics.value?.stats?.[0]?.splits?.[0]?.stat : sabermetrics.reason?.message,
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/test-savant", async (req, res) => {
+  try {
+    // Test fetching hitter barrel rate leaderboard CSV
+    const url = "https://baseballsavant.mlb.com/leaderboard/custom?year=2026&type=batter&filter=&min=25&selections=barrel_batted_rate,hard_hit_percent,xwoba,launch_angle_avg&csv=true";
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; stats-fetcher)",
+        "Accept": "text/csv,*/*",
+      }
+    });
+    const text = await r.text();
+    res.json({
+      status: r.status,
+      ok: r.ok,
+      preview: text.slice(0, 500),
+      headers: Object.fromEntries(r.headers.entries()),
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/clear-plays-cache", (req, res) => {
   playsCache = { date: null, data: null, hrCount: 0, generating: false };
   res.json({ ok: true, message: "plays cache cleared" });
