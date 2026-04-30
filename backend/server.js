@@ -769,8 +769,8 @@ app.get("/api/ai/plays-cached", async (req, res) => {
     isFirstPoll = true;
   }
 
-  // Serve cache if fresh and HR count unchanged
-  if (playsCache.date === today && playsCache.data && playsCache.hrCount === currentHRCount) {
+  // Serve cache if same day — locked in, no regeneration mid-day
+  if (playsCache.date === today && playsCache.data) {
     return res.json(playsCache.data);
   }
 
