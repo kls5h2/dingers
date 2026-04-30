@@ -683,11 +683,11 @@ async function generatePlays(today, todayHRs) {
         if (!pp && !stats) return "TBD";
         const name = stats?.name || pp?.fullName || "TBD";
         if (!stats) return name;
-        return `${name}(${stats.hand},ERA:${stats.era},HR9:${stats.hr9},vsL:${stats.vsLHB},vsR:${stats.vsRHB})`;
+        return `${name}(${stats.hand},ERA:${stats.era},HR9:${stats.hr9})`;
       };
 
       const fmtHitter = (h) =>
-        `${h.name}(${h.bats},${h.seasonHR}HR,AB/HR:${h.abPerHR},wOBA:${h.woba},L14:${h.last14HR}HR,OPS:${h.ops},vsL:${h.vsLHP_HR}HR/${h.vsLHP_ops}OPS,vsR:${h.vsRHP_HR}HR/${h.vsRHP_ops}OPS)`;
+        `${h.name}(${h.bats},${h.seasonHR}HR,AB/HR:${h.abPerHR},wOBA:${h.woba},L14:${h.last14HR},vsL:${h.vsLHP_HR},vsR:${h.vsRHP_HR})`;
 
       const awayHitterStr = awayHitters.map(fmtHitter).join(" | ");
       const homeHitterStr = homeHitters.map(fmtHitter).join(" | ");
@@ -740,7 +740,7 @@ CONFIDENCE RULES (based purely on numbers above):
 - Only include players in today's games listed above
 
 Return JSON only — no markdown, start with {: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
-    , 4000);
+    , 6000);
 
     if (result?.plays) {
       playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
