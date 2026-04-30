@@ -267,7 +267,15 @@ const PARK_FACTORS = {
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 app.get("/api/live-hrs", (req, res) => {
-  res.json({ hrs: liveHRs, lastPoll, count: liveHRs.length });
+  // Only return HRs from today's CT date
+  const today = getCTDate(0);
+  const todayHRs = liveHRs.filter(hr => {
+    if (!hr.timestamp) return true;
+    const hrDate = new Date(hr.timestamp).toLocaleDateString("en-US", { timeZone: "America/Chicago" });
+    const todayLocal = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago" });
+    return hrDate === todayLocal;
+  });
+  res.json({ hrs: todayHRs, lastPoll, count: todayHRs.length });
 });
 
 app.get("/api/yesterday-hrs", async (req, res) => {
@@ -741,7 +749,7 @@ Return JSON only — no markdown, start with {: {"plays":[{"player":string,"team
     return result;
 
   } catch(e) {
-    console.error("[plays] error:", e.message);
+    console.error("[plays] error:", e.message, e.stack?.split("\n")[1]);
     playsCache.generating = false;
     throw e;
   }
