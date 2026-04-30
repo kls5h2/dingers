@@ -453,48 +453,6 @@ app.get("/api/hr-analysis", async (req, res) => {
 });
 
 // ── Test Baseball Savant access ───────────────────────────────────────────
-app.get("/api/test-statcast/:playerId", async (req, res) => {
-  try {
-    const { playerId } = req.params;
-    const year = new Date().getFullYear();
-    // Test various stat groups MLB API offers
-    const [statcast, advanced, sabermetrics] = await Promise.allSettled([
-      mlb(`/people/${playerId}/stats?stats=statsSingleSeason&group=hitting&season=${year}&fields=stats,splits,stat,exitVelocity,launchAngle,barrelBattedRate,hardHitPercent`),
-      mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}&sportId=1`),
-      mlb(`/people/${playerId}/stats?stats=sabermetrics&group=hitting&season=${year}`),
-    ]);
-    res.json({
-      statcast: statcast.status === "fulfilled" ? statcast.value?.stats?.[0]?.splits?.[0]?.stat : statcast.reason?.message,
-      advanced: advanced.status === "fulfilled" ? advanced.value?.stats?.[0]?.splits?.[0]?.stat : advanced.reason?.message,
-      sabermetrics: sabermetrics.status === "fulfilled" ? sabermetrics.value?.stats?.[0]?.splits?.[0]?.stat : sabermetrics.reason?.message,
-    });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.get("/api/test-savant", async (req, res) => {
-  try {
-    // Test fetching hitter barrel rate leaderboard CSV
-    const url = "https://baseballsavant.mlb.com/leaderboard/custom?year=2026&type=batter&filter=&min=25&selections=barrel_batted_rate,hard_hit_percent,xwoba,launch_angle_avg&csv=true";
-    const r = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; stats-fetcher)",
-        "Accept": "text/csv,*/*",
-      }
-    });
-    const text = await r.text();
-    res.json({
-      status: r.status,
-      ok: r.ok,
-      preview: text.slice(0, 500),
-      headers: Object.fromEntries(r.headers.entries()),
-    });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 app.get("/api/clear-plays-cache", (req, res) => {
   playsCache = { date: null, data: null, hrCount: 0, generating: false };
   res.json({ ok: true, message: "plays cache cleared" });
@@ -636,36 +594,41 @@ async function generatePlays(today, todayHRs) {
     async function getRealHitterData(playerId, name) {
       if (hitterCache[playerId]) return hitterCache[playerId];
       try {
-        const [info, season, last7, vsL, vsR] = await Promise.allSettled([
+        const [info, season, last14, vsL, vsR, saber] = await Promise.allSettled([
           mlb(`/people/${playerId}`),
           mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}`),
-          mlb(`/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${year}&limit=7`),
+          mlb(`/people/${playerId}/stats?stats=lastXGames&group=hitting&season=${year}&limit=14`),
           mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vl`),
           mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vr`),
+          mlb(`/people/${playerId}/stats?stats=sabermetrics&group=hitting&season=${year}`),
         ]);
-        const s   = season.status  === "fulfilled" ? season.value?.stats?.[0]?.splits?.[0]?.stat  : null;
-        const l7  = last7.status   === "fulfilled" ? last7.value?.stats?.[0]?.splits?.[0]?.stat   : null;
-        const sl  = vsL.status     === "fulfilled" ? vsL.value?.stats?.[0]?.splits?.[0]?.stat     : null;
-        const sr  = vsR.status     === "fulfilled" ? vsR.value?.stats?.[0]?.splits?.[0]?.stat     : null;
-        const bats = info.status   === "fulfilled" ? info.value?.people?.[0]?.batSide?.code : "?";
+        const s    = season.status  === "fulfilled" ? season.value?.stats?.[0]?.splits?.[0]?.stat  : null;
+        const l14  = last14.status  === "fulfilled" ? last14.value?.stats?.[0]?.splits?.[0]?.stat  : null;
+        const sl   = vsL.status     === "fulfilled" ? vsL.value?.stats?.[0]?.splits?.[0]?.stat     : null;
+        const sr   = vsR.status     === "fulfilled" ? vsR.value?.stats?.[0]?.splits?.[0]?.stat     : null;
+        const sab  = saber.status   === "fulfilled" ? saber.value?.stats?.[0]?.splits?.[0]?.stat   : null;
+        const bats = info.status    === "fulfilled" ? info.value?.people?.[0]?.batSide?.code : "?";
         const seasonHR = parseInt(s?.homeRuns || 0);
-        if (seasonHR < 1) return null; // skip non-power hitters
+        if (seasonHR < 1) return null;
         const iso = s?.slugging && s?.avg
           ? (parseFloat(s.slugging) - parseFloat(s.avg)).toFixed(3) : "?";
+        const abPerHR = s?.atBatsPerHomeRun ? parseFloat(s.atBatsPerHomeRun).toFixed(1) : "?";
         const result = {
-          name,
-          playerId,
-          bats,
-          seasonHR,
-          avg:    s?.avg    || "?",
-          ops:    s?.ops    || "?",
+          name, playerId, bats, seasonHR,
+          avg:      s?.avg    || "?",
+          ops:      s?.ops    || "?",
+          slg:      s?.slg    || "?",
           iso,
-          last7HR: parseInt(l7?.homeRuns || 0),
-          last7OPS: l7?.ops || "?",
-          vsLHP_HR: parseInt(sl?.homeRuns || 0),
-          vsRHP_HR: parseInt(sr?.homeRuns || 0),
+          abPerHR,                                    // AB per HR — true power rate
+          woba:     sab?.woba ? parseFloat(sab.woba).toFixed(3) : "?",  // quality metric
+          last14HR: parseInt(l14?.homeRuns || 0),
+          last14OPS: l14?.ops || "?",
+          vsLHP_HR:  parseInt(sl?.homeRuns || 0),
+          vsRHP_HR:  parseInt(sr?.homeRuns || 0),
           vsLHP_avg: sl?.avg || "?",
           vsRHP_avg: sr?.avg || "?",
+          vsLHP_ops: sl?.ops || "?",
+          vsRHP_ops: sr?.ops || "?",
         };
         hitterCache[playerId] = result;
         return result;
@@ -716,7 +679,7 @@ async function generatePlays(today, todayHRs) {
       };
 
       const fmtHitter = (h) =>
-        `${h.name}(${h.bats},${h.seasonHR}HR,L7:${h.last7HR}HR,OPS:${h.ops},vsL:${h.vsLHP_HR},vsR:${h.vsRHP_HR})`;
+        `${h.name}(${h.bats},${h.seasonHR}HR,AB/HR:${h.abPerHR},wOBA:${h.woba},L14:${h.last14HR}HR,OPS:${h.ops},vsL:${h.vsLHP_HR}HR/${h.vsLHP_ops}OPS,vsR:${h.vsRHP_HR}HR/${h.vsRHP_ops}OPS)`;
 
       const awayHitterStr = awayHitters.map(fmtHitter).join(" | ");
       const homeHitterStr = homeHitters.map(fmtHitter).join(" | ");
@@ -750,16 +713,25 @@ ${gamesStr}
 
 ${alreadyHit}
 
-PICK the best HR props using ONLY the real data above:
-- HIGH: player with 3+ last7HR OR top recent HR list + faces pitcher with HR/9 > 1.3 + park >= 95. Must be playing today.
-- MED: 1-2 last7HR + favorable pitcher splits for their handedness + decent park
-- WATCH: low recent HR but matchup is good, flag the concern honestly
-- Do NOT include players not listed in today's games above
-- Do NOT use any stats not provided above
-- ${alreadyHit ? "Do NOT include players who already hit today" : ""}
+PICK the best HR props using ONLY the real data above.
 
-Return JSON only — no markdown, start with {:
-{"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
+RANKING LOGIC (use in this order):
+1. AB/HR rate — lower is better. Under 12 = elite power. 12-18 = strong. Over 25 = not a power threat today
+2. wOBA — over .370 = quality contact maker. Under .300 = avoid
+3. Handedness split — match hitter's stronger side vs pitcher (vsL or vsR stats show this)
+4. Pitcher HR/9 — over 1.5 = vulnerable. Under 0.8 = avoid regardless
+5. Park factor — over 108 = meaningful boost. Under 92 = meaningful suppress
+6. L14 HR count — secondary signal for recent form, not primary
+
+CONFIDENCE RULES (based purely on numbers above):
+- HIGH: AB/HR < 15 AND wOBA > .370 AND faces pitcher HR/9 > 1.3 AND park >= 95 AND handedness split favors hitter
+- MED: AB/HR < 20 AND wOBA > .330 AND at least 2 other factors positive
+- WATCH: one strong factor but one meaningful concern — name both explicitly
+- Do NOT include players with AB/HR > 28 or wOBA < .300
+- Do NOT guess any stat — only use numbers provided above
+- Only include players in today's games listed above
+
+Return JSON only — no markdown, start with {: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
     , 4000);
 
     if (result?.plays) {
