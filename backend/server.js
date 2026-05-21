@@ -462,6 +462,26 @@ app.get("/api/hr-analysis", async (req, res) => {
 });
 
 // ── Test Baseball Savant access ───────────────────────────────────────────
+// ── Test Savant gamefeed access ───────────────────────────────────────────
+app.get("/api/test-savant-gamefeed/:gamePk", async (req, res) => {
+  try {
+    const { gamePk } = req.params;
+    // Test the gamefeed JSON endpoint
+    const url = `https://baseballsavant.mlb.com/gf?game_pk=${gamePk}`;
+    const r = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
+    });
+    const text = await r.text();
+    res.json({
+      status: r.status,
+      ok: r.ok,
+      preview: text.slice(0, 800),
+    });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/clear-plays-cache", (req, res) => {
   playsCache = { date: null, data: null, hrCount: 0, generating: false };
   res.json({ ok: true, message: "plays cache cleared" });
