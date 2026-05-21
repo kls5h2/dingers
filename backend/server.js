@@ -202,12 +202,13 @@ async function getPlayerStats(playerId) {
   };
 
   const seasonStat = extract(season);
-  console.log("[getPlayerStats]", playerId, "season HR:", seasonStat?.homeRuns, "avg:", seasonStat?.avg);
+  const last14Stat = extract(last14);
+  console.log("[getPlayerStats]", playerId, "season HR:", seasonStat?.homeRuns, "avg:", seasonStat?.avg, "last14 HR:", last14Stat?.homeRuns);
 
   return {
     season:  seasonStat,
-    last14:  extract(last14),
-    last7:   extract(last7),
+    last14:  last14Stat,
+    last7:   last14Stat, // 14-day proxy — lastXGames/7 is often empty
     vsLeft:  extract(vsL),
     vsRight: extract(vsR),
     home:    extract(home),
@@ -267,13 +268,13 @@ const PARK_FACTORS = {
 
 // ── Routes ─────────────────────────────────────────────────────────────────
 app.get("/api/live-hrs", (req, res) => {
-  // Only return HRs from today's CT date
-  const today = getCTDate(0);
+  const todayCT = getCTDate(0); // e.g. "2026-05-21"
   const todayHRs = liveHRs.filter(hr => {
-    if (!hr.timestamp) return true;
-    const hrDate = new Date(hr.timestamp).toLocaleDateString("en-US", { timeZone: "America/Chicago" });
-    const todayLocal = new Date().toLocaleDateString("en-US", { timeZone: "America/Chicago" });
-    return hrDate === todayLocal;
+    if (!hr.timestamp) return false;
+    // Convert UTC timestamp to CT date string for comparison
+    const d = new Date(hr.timestamp);
+    const ctStr = d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" }); // YYYY-MM-DD
+    return ctStr === todayCT;
   });
   res.json({ hrs: todayHRs, lastPoll, count: todayHRs.length });
 });
@@ -902,17 +903,18 @@ app.post("/api/ai/player-analysis", async (req, res) => {
     console.log("[player-analysis] stats for", playerName, "season HR:", stats?.season?.homeRuns, "avg:", stats?.season?.avg, "ops:", stats?.season?.ops);
 
     const result = await callClaude(
-      `You are analyzing ${playerName} for an HR prop bet today. Use the stats below — even if some are zero or limited, give a real analysis based on what IS available. Do not say "insufficient data." If stats are low, explain what they suggest and what to watch for.
+      `Analyze ${playerName} as an HR prop bet. Use ONLY the stats below. Be direct and specific.
 
-Stats:
 ${lines}
 
-Return JSON: {"summary":string,"strengths":[string],"watchouts":[string],"confidence":"HIGH" or "MED" or "WATCH"}
+Return JSON only, start with {: {"summary":string,"strengths":[string],"watchouts":[string],"confidence":"HIGH" or "MED" or "WATCH"}
 
-- summary: 2-3 sentences on HR likelihood today
-- strengths: 1-3 specific reasons to like them
-- watchouts: 1-2 honest concerns
-- confidence based on available evidence`
+Rules:
+- summary: 2 sentences max, cite specific numbers
+- strengths: 1-3 items, each referencing an actual stat from above
+- watchouts: 1-2 honest concerns with numbers
+- HIGH if AB/HR < 15 and OPS > .850, MED if AB/HR < 22 and OPS > .750, WATCH otherwise
+- Never say "insufficient data" — low stats ARE data, explain what they mean`
     );
     res.json(result);
   } catch(e) {
