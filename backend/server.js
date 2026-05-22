@@ -462,24 +462,66 @@ app.get("/api/hr-analysis", async (req, res) => {
 });
 
 // ── Test Baseball Savant access ───────────────────────────────────────────
-// ── Test Savant gamefeed access ───────────────────────────────────────────
-app.get("/api/test-savant-gamefeed/:gamePk", async (req, res) => {
+// ── Slate environment classification ─────────────────────────────────────
+let envCache = { date: null, data: null };
+
+app.get("/api/environment", async (req, res) => {
+  const today = getCTDate(0);
+  if (envCache.date === today && envCache.data) return res.json(envCache.data);
   try {
-    const { gamePk } = req.params;
-    // Test the gamefeed JSON endpoint
-    const url = `https://baseballsavant.mlb.com/gf?game_pk=${gamePk}`;
-    const r = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }
-    });
-    const text = await r.text();
-    res.json({
-      status: r.status,
-      ok: r.ok,
-      preview: text.slice(0, 800),
-    });
-  } catch(e) {
-    res.status(500).json({ error: e.message });
-  }
+    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue,weather`);
+    const games = schedData.dates?.[0]?.games || [];
+    const parkFs = games.map(g => PARK_FACTORS[g.venue?.name]?.factor || 100);
+    const avgPark = Math.round(parkFs.reduce((a,b)=>a+b,0)/(parkFs.length||1));
+    const hotParks = parkFs.filter(f=>f>108).length;
+    const coldParks = parkFs.filter(f=>f<93).length;
+    let windOutCount=0, coldCount=0, hotCount=0;
+    for (const g of games) {
+      const w = g.weather || {};
+      const wind = w.wind || "";
+      const speed = parseInt(wind) || 0;
+      if (wind.toLowerCase().includes("out") && speed > 8) windOutCount++;
+      const temp = parseInt(w.temp) || 70;
+      if (temp < 55) coldCount++;
+      if (temp > 78) hotCount++;
+    }
+    let fatiguedTeams = 0;
+    for (const g of games.slice(0,6)) {
+      const [af, hf] = await Promise.all([
+        g.teams?.away?.team?.id ? getBullpenFatigue(g.teams.away.team.id) : null,
+        g.teams?.home?.team?.id ? getBullpenFatigue(g.teams.home.team.id) : null,
+      ]);
+      if (af?.fatigued) fatiguedTeams++;
+      if (hf?.fatigued) fatiguedTeams++;
+    }
+    let type="Standard Night", confidence=55, reasons=[], archetypesFavored=["Elite Barrel Bat"];
+    if (windOutCount>=3 && hotParks>=3) {
+      type="Airborne Damage Night"; confidence=78;
+      reasons=[`Wind blowing out in ${windOutCount} parks`,`${hotParks} hitter-friendly parks`];
+      archetypesFavored=["Elite Barrel Bat","Pull-Side Power","Hot Streak Hitter"];
+    } else if (fatiguedTeams>=4) {
+      type="Bullpen Collapse Environment"; confidence=72;
+      reasons=[`${fatiguedTeams} fatigued bullpens`,`Relief pitchers vulnerable late`];
+      archetypesFavored=["Hot Streak Hitter","Platoon Specialist","Solid Contact Bat"];
+    } else if (coldCount>=4 || (coldCount>=3 && windOutCount===0)) {
+      type="Suppressed Carry Night"; confidence=70;
+      reasons=[`${coldCount} cold-weather games`,`Ball carries less in cold air`];
+      archetypesFavored=["Elite Barrel Bat"];
+    } else if (hotParks>=4 && hotCount>=3) {
+      type="Fly-Ball Paradise"; confidence=74;
+      reasons=[`${hotParks} hitter-friendly parks`,`Warm temps in ${hotCount} cities`];
+      archetypesFavored=["Elite Barrel Bat","Pull-Side Power","Hot Streak Hitter"];
+    } else if (windOutCount>=2 && avgPark>102) {
+      type="Elevated Carry Slate"; confidence=65;
+      reasons=[`Wind out in ${windOutCount} parks`,`Above-avg park slate (factor ${avgPark})`];
+      archetypesFavored=["Elite Barrel Bat","Hot Streak Hitter"];
+    } else {
+      reasons=["Mixed conditions","No dominant environmental signal"];
+    }
+    const result = { type, confidence, reasons, archetypesFavored, stats:{ avgParkFactor:avgPark, hotParks, coldParks, windOutCount, fatiguedTeams, coldCount }, games:games.length };
+    envCache = { date: today, data: result };
+    res.json(result);
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get("/api/clear-plays-cache", (req, res) => {
