@@ -320,6 +320,176 @@ app.get("/api/player/:id", async (req, res) => {
   }
 });
 
+// ── Player matchup for today ──────────────────────────────────────────────
+// Returns today's specific matchup context for a player:
+// their game, opposing pitcher with real splits, park factor,
+// and any HRs they've already hit today
+app.get("/api/player-matchup/:playerId", async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const today = getCTDate(0);
+    const year = new Date().getFullYear();
+
+    // Step 1: Find today's game for this player
+    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,roster`);
+    const games = schedData.dates?.[0]?.games || [];
+
+    // Get player info to find their team
+    const personData = await mlb(`/people/${playerId}`);
+    const person = personData.people?.[0];
+    const teamId = person?.currentTeam?.id;
+    const bats = person?.batSide?.code || "?";
+    const fullName = person?.fullName || "";
+
+    if (!teamId) return res.json({ playing: false });
+
+    // Find the game where this player's team is playing today
+    const game = games.find(g =>
+      g.teams?.away?.team?.id === teamId ||
+      g.teams?.home?.team?.id === teamId
+    );
+
+    if (!game) return res.json({ playing: false, reason: "No game today" });
+
+    // Step 2: Identify opposing pitcher
+    const isHome = game.teams?.home?.team?.id === teamId;
+    const oppPP = isHome
+      ? game.teams?.away?.probablePitcher   // home team faces away pitcher
+      : game.teams?.home?.probablePitcher;  // away team faces home pitcher
+    const myTeamAbb  = isHome ? game.teams?.home?.team?.abbreviation : game.teams?.away?.team?.abbreviation;
+    const oppTeamAbb = isHome ? game.teams?.away?.team?.abbreviation : game.teams?.home?.team?.abbreviation;
+    const venue = game.venue?.name || "?";
+    const parkFactor = PARK_FACTORS[venue]?.factor || 100;
+    const gameTime = game.gameDate;
+    const status = game.status?.detailedState || "Scheduled";
+
+    // Step 3: Fetch real pitcher splits
+    let pitcherData = null;
+    if (oppPP?.id) {
+      const [pitcherInfo, seasonStats, vsL, vsR] = await Promise.allSettled([
+        mlb(`/people/${oppPP.id}`),
+        mlb(`/people/${oppPP.id}/stats?stats=season&group=pitching&season=${year}`),
+        mlb(`/people/${oppPP.id}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vl`),
+        mlb(`/people/${oppPP.id}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vr`),
+      ]);
+      const s  = seasonStats.status === "fulfilled" ? seasonStats.value?.stats?.[0]?.splits?.[0]?.stat : null;
+      const sl = vsL.status === "fulfilled" ? vsL.value?.stats?.[0]?.splits?.[0]?.stat : null;
+      const sr = vsR.status === "fulfilled" ? vsR.value?.stats?.[0]?.splits?.[0]?.stat : null;
+      const hand = pitcherInfo.status === "fulfilled" ? pitcherInfo.value?.people?.[0]?.pitchHand?.code : "?";
+
+      // The relevant split is based on the batter's handedness
+      // A left-handed batter (L) faces the pitcher's "vs LHB" split
+      const relevantSplit = bats === "L" ? sl : bats === "R" ? sr : null;
+
+      pitcherData = {
+        id: oppPP.id,
+        name: oppPP.fullName,
+        hand,
+        era:   s?.era    || "?",
+        whip:  s?.whip   || "?",
+        hr9:   s?.homeRunsPer9 ? parseFloat(s.homeRunsPer9).toFixed(2) : "?",
+        // Season-level splits
+        vsLHB_hr9: sl?.homeRunsPer9 ? parseFloat(sl.homeRunsPer9).toFixed(2) : "?",
+        vsRHB_hr9: sr?.homeRunsPer9 ? parseFloat(sr.homeRunsPer9).toFixed(2) : "?",
+        vsLHB_avg: sl?.avg || "?",
+        vsRHB_avg: sr?.avg || "?",
+        // The split that actually applies to this batter
+        relevantHr9:  relevantSplit?.homeRunsPer9 ? parseFloat(relevantSplit.homeRunsPer9).toFixed(2) : s?.homeRunsPer9 ? parseFloat(s.homeRunsPer9).toFixed(2) : "?",
+        relevantAvg:  relevantSplit?.avg || s?.avg || "?",
+      };
+    }
+
+    // Step 4: Get hitter's own stats for matchup context
+    const [hitterSeason, hitterSaber, vsL, vsR] = await Promise.allSettled([
+      mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}`),
+      mlb(`/people/${playerId}/stats?stats=sabermetrics&group=hitting&season=${year}`),
+      mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vl`),
+      mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vr`),
+    ]);
+    const hs  = hitterSeason.status === "fulfilled" ? hitterSeason.value?.stats?.[0]?.splits?.[0]?.stat : null;
+    const sab = hitterSaber.status  === "fulfilled" ? hitterSaber.value?.stats?.[0]?.splits?.[0]?.stat  : null;
+    const hsl = vsL.status === "fulfilled" ? vsL.value?.stats?.[0]?.splits?.[0]?.stat : null;
+    const hsr = vsR.status === "fulfilled" ? vsR.value?.stats?.[0]?.splits?.[0]?.stat : null;
+
+    // Pick the relevant hitting split based on pitcher handedness
+    const pitcherHand = pitcherData?.hand || "R";
+    const relevantHittingSplit = pitcherHand === "L" ? hsl : hsr;
+
+    const abPerHR = hs?.atBatsPerHomeRun ? parseFloat(hs.atBatsPerHomeRun).toFixed(1) : "?";
+    const woba    = sab?.woba ? parseFloat(sab.woba).toFixed(3) : "?";
+    const iso     = hs?.slugging && hs?.avg ? (parseFloat(hs.slugging) - parseFloat(hs.avg)).toFixed(3) : "?";
+
+    // Step 5: Check if this player has already hit a HR today
+    const todayHRs_forPlayer = liveHRs.filter(hr =>
+      hr.player?.toLowerCase().includes(fullName.split(" ")[1]?.toLowerCase() || "")
+    );
+
+    // Step 6: Build edge assessment
+    const edgeFactors = [];
+    const concerns = [];
+    const abHR = parseFloat(abPerHR) || 999;
+    const wobaNum = parseFloat(woba) || 0;
+    const hr9Num = parseFloat(pitcherData?.relevantHr9) || 0;
+
+    if (abHR < 15) edgeFactors.push(`Elite power rate (AB/HR ${abPerHR})`);
+    else if (abHR < 20) edgeFactors.push(`Strong power rate (AB/HR ${abPerHR})`);
+    else concerns.push(`Moderate power rate (AB/HR ${abPerHR})`);
+
+    if (wobaNum > .370) edgeFactors.push(`High contact quality (wOBA ${woba})`);
+    else if (wobaNum > .330) edgeFactors.push(`Solid contact quality (wOBA ${woba})`);
+    else if (wobaNum > .290) concerns.push(`Below-avg wOBA (${woba})`);
+
+    if (hr9Num > 1.5) edgeFactors.push(`Pitcher very vulnerable (HR/9 ${pitcherData?.relevantHr9} vs ${bats}HB)`);
+    else if (hr9Num > 1.3) edgeFactors.push(`Pitcher vulnerable (HR/9 ${pitcherData?.relevantHr9} vs ${bats}HB)`);
+    else if (hr9Num > 0) concerns.push(`Pitcher HR/9 only ${pitcherData?.relevantHr9} vs ${bats}HB`);
+
+    if (parkFactor > 108) edgeFactors.push(`Hitter-friendly park (factor ${parkFactor})`);
+    else if (parkFactor < 93) concerns.push(`Pitcher-friendly park (factor ${parkFactor})`);
+
+    const splitHR = pitcherHand === "L" ? (hsl?.homeRuns || 0) : (hsr?.homeRuns || 0);
+    if (splitHR > 5) edgeFactors.push(`${splitHR} HR vs ${pitcherHand}HP this season`);
+
+    const overallEdge = edgeFactors.length >= 3 ? "HIGH"
+      : edgeFactors.length >= 2 ? "MED"
+      : concerns.length > edgeFactors.length ? "WEAK"
+      : "MED";
+
+    res.json({
+      playing: true,
+      player: { id: playerId, name: fullName, bats },
+      game: {
+        gamePk: game.gamePk,
+        myTeam: myTeamAbb,
+        opponent: oppTeamAbb,
+        venue,
+        parkFactor,
+        gameTime,
+        status,
+        isHome,
+      },
+      pitcher: pitcherData,
+      hitterContext: {
+        abPerHR,
+        woba,
+        iso,
+        ops: hs?.ops || "?",
+        seasonHR: hs?.homeRuns || 0,
+        vsLHP_HR: hsl?.homeRuns || 0,
+        vsRHP_HR: hsr?.homeRuns || 0,
+        relevantSplitHR: splitHR,
+        relevantSplitAvg: relevantHittingSplit?.avg || "?",
+        relevantSplitOPS: relevantHittingSplit?.ops || "?",
+      },
+      edge: { overall: overallEdge, factors: edgeFactors, concerns },
+      todayHRs: todayHRs_forPlayer,
+    });
+
+  } catch(e) {
+    console.error("[player-matchup]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/park-factors", (req, res) => {
   const sorted = Object.entries(PARK_FACTORS)
     .map(([name, v]) => ({ name, ...v }))

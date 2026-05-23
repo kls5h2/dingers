@@ -327,6 +327,132 @@ function Conditions({ games, parkData }) {
   );
 }
 
+// ── Today's Matchup Card ──────────────────────────────────────────────────
+// Shows tonight's specific matchup context for a player — pitcher splits,
+// park factor, edge assessment, and any HRs already hit today
+function MatchupCard({ playerId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!playerId) return;
+    setLoading(true);
+    apiFetch(`/api/player-matchup/${playerId}`)
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [playerId]);
+
+  if (loading) return (
+    <div style={{ padding: "12px 16px", fontSize: 12, color: "#9ca3af", background: "#f9fafb", borderRadius: 12, marginBottom: 10 }}>
+      Loading tonight's matchup...
+    </div>
+  );
+
+  if (!data?.playing) return (
+    <div style={{ padding: "12px 16px", fontSize: 12, color: "#9ca3af", background: "#f9fafb", borderRadius: 12, marginBottom: 10 }}>
+      No game scheduled today.
+    </div>
+  );
+
+  const edgeColors = { HIGH: "#c8102e", MED: "#b45309", WEAK: "#6b7280" };
+  const edgeBg     = { HIGH: "#fef2f2", MED: "#fffbeb", WEAK: "#f9fafb" };
+  const edgeColor  = edgeColors[data.edge?.overall] || "#6b7280";
+  const edgeBgCol  = edgeBg[data.edge?.overall]     || "#f9fafb";
+
+  const gameTime = data.game?.gameTime
+    ? new Date(data.game.gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) + " CT"
+    : "";
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      {/* Today's HR if they already hit one */}
+      {data.todayHRs?.length > 0 && (
+        <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: "12px 14px", marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", letterSpacing: "0.1em", marginBottom: 6 }}>💥 ALREADY HIT TODAY</div>
+          {data.todayHRs.map((hr, i) => (
+            <div key={i} style={{ fontSize: 13, color: "#065f46" }}>
+              Inn. {hr.inning}{hr.distance ? ` · ${Math.round(hr.distance)} ft` : ""}{hr.exitVelo ? ` · ${Math.round(hr.exitVelo)} mph exit velo` : ""}
+              {hr.pitcher ? ` · off ${hr.pitcher}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Matchup card */}
+      <div style={{ background: edgeBgCol, border: `1px solid ${edgeColor}33`, borderRadius: 12, overflow: "hidden" }}>
+        {/* Header */}
+        <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid rgba(0,0,0,0.06)", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", letterSpacing: "0.12em", marginBottom: 3 }}>TONIGHT'S MATCHUP</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>
+              {data.game?.myTeam} {data.game?.isHome ? "vs" : "@"} {data.game?.opponent}
+            </div>
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>{data.game?.venue} · {gameTime}</div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: edgeColor, background: "#fff", border: `1px solid ${edgeColor}44`, padding: "3px 10px", borderRadius: 20 }}>
+              {data.edge?.overall} EDGE
+            </div>
+            <div style={{ fontSize: 10, color: "#6b7280", marginTop: 3 }}>Park factor {data.game?.parkFactor}</div>
+          </div>
+        </div>
+
+        {/* Pitcher section */}
+        {data.pitcher && (
+          <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", letterSpacing: "0.1em", marginBottom: 6 }}>OPPOSING PITCHER</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#111827", marginBottom: 4 }}>
+              {data.pitcher.name} ({data.pitcher.hand}HP)
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+              {[
+                ["ERA", data.pitcher.era],
+                ["HR/9 overall", data.pitcher.hr9],
+                [`HR/9 vs ${data.player?.bats}HB`, data.pitcher.relevantHr9],
+              ].map(([label, val]) => (
+                <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "7px 6px", textAlign: "center" }}>
+                  <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2, letterSpacing: "0.06em" }}>{label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: parseFloat(val) > 1.3 && label.includes("HR/9") ? "#c8102e" : "#111827" }}>{val}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Hitter context */}
+        <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(0,0,0,0.06)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", letterSpacing: "0.1em", marginBottom: 6 }}>
+            HITTER vs {data.pitcher?.hand || "R"}HP THIS SEASON
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+            {[
+              ["AB/HR", data.hitterContext?.abPerHR],
+              ["wOBA", data.hitterContext?.woba],
+              ["HR vs this hand", data.hitterContext?.relevantSplitHR],
+              ["Split AVG", data.hitterContext?.relevantSplitAvg],
+            ].map(([label, val]) => (
+              <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "7px 4px", textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2, letterSpacing: "0.04em" }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{val ?? "—"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Edge factors and concerns */}
+        <div style={{ padding: "10px 14px" }}>
+          {data.edge?.factors?.map((f, i) => (
+            <div key={i} style={{ fontSize: 12, color: "#059669", marginBottom: 3 }}>✓ {f}</div>
+          ))}
+          {data.edge?.concerns?.map((c, i) => (
+            <div key={i} style={{ fontSize: 12, color: "#d97706", marginTop: 3 }}>⚠ {c}</div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Deep Dive ──────────────────────────────────────────────────────────────
 function DeepDive({ playerId, playerName, onClose }) {
   const [data, setData]         = useState(null);
@@ -369,6 +495,7 @@ function DeepDive({ playerId, playerName, onClose }) {
       {error && <div style={{ padding: 16, fontSize: 12, color: "#c8102e" }}>⚠ {error}</div>}
       {!loading && data && (
         <div style={{ padding: 16 }}>
+          <MatchupCard playerId={playerId} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
             {[["LAST 7", `${st?.last7?.homeRuns ?? "—"}`, st?.last7?.homeRuns > 1 ? "#059669" : "#111827"],
               ["vs LHP", `${st?.vsLeft?.homeRuns ?? "—"}`, "#111827"],
