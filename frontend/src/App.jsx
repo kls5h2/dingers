@@ -453,82 +453,276 @@ function MatchupCard({ playerId }) {
   );
 }
 
-// ── Deep Dive ──────────────────────────────────────────────────────────────
+// ── Player Profile ────────────────────────────────────────────────────────
 function DeepDive({ playerId, playerName, onClose }) {
-  const [data, setData]         = useState(null);
-  const [analysis, setAnalysis] = useState(null);
-  const [loading, setLoading]   = useState(true);
-  const [aiLoad, setAiLoad]     = useState(false);
-  const [error, setError]       = useState(null);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [calOpen, setCalOpen] = useState(false);
+
   useEffect(() => {
     if (!playerId) return;
-    setLoading(true); setData(null); setAnalysis(null);
-    apiFetch(`/api/player/${playerId}`)
-      .then(d => { setData(d); setLoading(false); runAI(d); })
+    setLoading(true); setData(null); setError(null);
+    apiFetch(`/api/player-profile/${playerId}`)
+      .then(d => { setData(d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   }, [playerId]);
-  async function runAI(d) {
-    setAiLoad(true);
-    try {
-      const r = await apiFetch("/api/ai/player-analysis", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playerName, stats: d.stats, info: d.info }) });
-      setAnalysis(r);
-    } catch {}
-    setAiLoad(false);
+
+  const streakColors = { HOT: "#c8102e", WARM: "#b45309", NEUTRAL: "#6b7280", COLD: "#3b82f6" };
+  const streakBg     = { HOT: "#fef2f2", WARM: "#fffbeb", NEUTRAL: "#f9fafb", COLD: "#eff6ff" };
+  const edgeColors   = { HIGH: "#c8102e", MED: "#b45309", WEAK: "#6b7280" };
+
+  if (loading) return (
+    <div style={{ background: "#fff", borderRadius: 16, padding: 20, marginBottom: 12, textAlign: "center" }}>
+      <div style={{ fontSize: 13, color: "#9ca3af" }}>Loading player profile...</div>
+    </div>
+  );
+
+  if (error || !data) return (
+    <div style={{ background: "#fff", borderRadius: 16, padding: 20, marginBottom: 12 }}>
+      <div style={{ fontSize: 12, color: "#c8102e" }}>⚠ Could not load profile</div>
+    </div>
+  );
+
+  const { info, season, splits, streak, matchup, hrHistory, todayHRs } = data;
+  const streakColor = streakColors[streak?.status] || "#6b7280";
+  const streakBgCol = streakBg[streak?.status]     || "#f9fafb";
+
+  // Monthly calendar from hrHistory
+  const byMonth = {};
+  for (const g of hrHistory || []) {
+    const d = new Date(g.date + "T12:00:00");
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    if (!byMonth[key]) byMonth[key] = [];
+    byMonth[key].push(g);
   }
-  const st = data?.stats; const info = data?.info;
+  const months = Object.keys(byMonth).sort().reverse();
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
   return (
-    <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", marginBottom: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.12)" }}>
-      <div style={{ background: "#1a2f5e", padding: "16px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+    <div style={{ background: "#fff", borderRadius: 16, overflow: "hidden", marginBottom: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}>
+
+      {/* ── Header ── */}
+      <div style={{ background: "#1a2f5e", padding: 16, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 800, color: "#fff" }}>{info?.fullName || playerName}</div>
-          {info && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 3 }}>{info.currentTeam?.name} · {info.primaryPosition?.abbreviation} · Bats {info.batSide?.code}</div>}
+          <div style={{ fontSize: 18, fontWeight: 800, color: "#fff" }}>{info?.name || playerName}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>
+            {info?.team} · {info?.position} · Bats {info?.bats}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 30, fontWeight: 800, color: "#c8102e", lineHeight: 1 }}>{st?.season?.homeRuns ?? "—"}</div>
-            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)" }}>HR 2026</div>
+            <div style={{ fontSize: 32, fontWeight: 800, color: "#c8102e", lineHeight: 1 }}>{season?.hr ?? "—"}</div>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)" }}>HR {new Date().getFullYear()}</div>
           </div>
           <button onClick={onClose} style={{ background: "rgba(255,255,255,0.12)", border: "none", color: "#fff", width: 30, height: 30, borderRadius: "50%", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
         </div>
       </div>
-      {loading && <div style={{ padding: 24, textAlign: "center", fontSize: 13, color: "#9ca3af" }}>Loading stats...</div>}
-      {error && <div style={{ padding: 16, fontSize: 12, color: "#c8102e" }}>⚠ {error}</div>}
-      {!loading && data && (
-        <div style={{ padding: 16 }}>
-          <MatchupCard playerId={playerId} />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
-            {[["LAST 7", `${st?.last7?.homeRuns ?? "—"}`, st?.last7?.homeRuns > 1 ? "#059669" : "#111827"],
-              ["vs LHP", `${st?.vsLeft?.homeRuns ?? "—"}`, "#111827"],
-              ["vs RHP", `${st?.vsRight?.homeRuns ?? "—"}`, "#111827"],
-              ["AVG", fmtAvg(st?.season?.avg), "#111827"],
-              ["LAST 14", `${st?.last14?.homeRuns ?? "—"}`, "#111827"],
-              ["HOME", `${st?.home?.homeRuns ?? "—"}`, "#111827"],
-              ["AWAY", `${st?.away?.homeRuns ?? "—"}`, "#111827"],
-              ["OPS", st?.season?.ops ? Number(st.season.ops).toFixed(3) : "—", "#111827"],
-            ].map(([label, val, color]) => (
-              <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color }}>{val}</div>
+
+      <div style={{ padding: 16 }}>
+
+        {/* ── Today's HR alert ── */}
+        {todayHRs?.length > 0 && (
+          <div style={{ background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 12, padding: "10px 14px", marginBottom: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", letterSpacing: "0.1em", marginBottom: 4 }}>💥 ALREADY HIT TODAY</div>
+            {todayHRs.map((hr, i) => (
+              <div key={i} style={{ fontSize: 13, color: "#065f46" }}>
+                Inn. {hr.inning}{hr.distance ? ` · ${Math.round(hr.distance)} ft` : ""}{hr.exitVelo ? ` · ${Math.round(hr.exitVelo)} mph` : ""}
               </div>
             ))}
           </div>
-          {aiLoad && <div style={{ fontSize: 12, color: "#9ca3af", textAlign: "center", padding: "8px 0" }}>Analyzing...</div>}
-          {analysis && (
-            <div style={{ background: analysis.confidence === "HIGH" ? "#fef2f2" : "#f9fafb", borderRadius: 12, padding: 14, border: `1px solid ${analysis.confidence === "HIGH" ? "#fecaca" : "#e5e7eb"}` }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.1em" }}>TODAY'S ANALYSIS</span>
-                <ConfBadge conf={analysis.confidence} />
+        )}
+
+        {/* ── Zone 1: Current streak + 30-day dot row ── */}
+        <div style={{ background: streakBgCol, borderRadius: 12, padding: "12px 14px", marginBottom: 12, border: `1px solid ${streakColor}22` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: streakColor, letterSpacing: "0.1em" }}>
+                {streak?.status === "HOT" ? "🔥 HOT STREAK" : streak?.status === "WARM" ? "📈 WARMING UP" : streak?.status === "COLD" ? "❄️ COLD STRETCH" : "📊 NEUTRAL"}
+              </span>
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                {streak?.daysSinceLastHR === 0 ? "Hit today" :
+                 streak?.daysSinceLastHR > 0 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
               </div>
-              <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: "0 0 8px" }}>{analysis.summary}</p>
-              {analysis.strengths?.map((s, i) => <div key={i} style={{ fontSize: 12, color: "#059669", marginBottom: 3 }}>✓ {s}</div>)}
-              {analysis.watchouts?.map((w, i) => <div key={i} style={{ fontSize: 12, color: "#d97706", marginTop: 3 }}>⚠ {w}</div>)}
             </div>
-          )}
+            <div style={{ display: "flex", gap: 12, textAlign: "center" }}>
+              {[["L7", streak?.last7HRs], ["L14", streak?.last14HRs], ["L30", streak?.last30HRs]].map(([label, val]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af" }}>{val}</div>
+                  <div style={{ fontSize: 9, color: "#9ca3af" }}>{label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 30-day dot strip */}
+          <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
+            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i) => {
+              const d = new Date(day.date + "T12:00:00");
+              const label = d.getDate();
+              return (
+                <div key={i} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <div style={{
+                    width: day.hrs > 1 ? 14 : 10, height: day.hrs > 1 ? 14 : 10,
+                    borderRadius: "50%",
+                    background: day.hrs > 0 ? streakColor : day.played ? "#e5e7eb" : "transparent",
+                    border: day.played && day.hrs === 0 ? "1px solid #e5e7eb" : "none",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 7, fontWeight: 700, color: "#fff",
+                  }}>
+                    {day.hrs > 1 ? day.hrs : ""}
+                  </div>
+                  {i % 7 === 0 && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
+            Season avg: {streak?.seasonHRper7?.toFixed(1)} HR/7 games · Last 7: {streak?.last7HRs}
+          </div>
         </div>
-      )}
+
+        {/* ── Zone 2: Tonight's matchup ── */}
+        {matchup ? (
+          <div style={{ background: matchup.edge === "HIGH" ? "#fef2f2" : matchup.edge === "MED" ? "#fffbeb" : "#f9fafb", borderRadius: 12, padding: "12px 14px", marginBottom: 12, border: `1px solid ${edgeColors[matchup.edge] || "#e5e7eb"}33` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#374151", letterSpacing: "0.1em", marginBottom: 2 }}>TONIGHT'S MATCHUP</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>
+                  {matchup.myTeam} {matchup.isHome ? "vs" : "@"} {matchup.opponent}
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>
+                  {matchup.venue} · PF {matchup.park}
+                  {matchup.weather?.wind ? ` · ${matchup.weather.wind}` : ""}
+                  {matchup.weather?.temp ? ` · ${matchup.weather.temp}°F` : ""}
+                </div>
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: edgeColors[matchup.edge], background: "#fff", border: `1px solid ${edgeColors[matchup.edge]}44`, padding: "3px 10px", borderRadius: 20, whiteSpace: "nowrap" }}>
+                {matchup.edge} EDGE
+              </span>
+            </div>
+
+            {matchup.pitcher && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#111827", marginBottom: 6 }}>
+                  vs {matchup.pitcher.name} ({matchup.pitcher.hand}HP)
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+                  {[
+                    ["ERA", matchup.pitcher.era],
+                    ["HR/9", matchup.pitcher.hr9],
+                    [`HR/9 vs ${info?.bats}HB`, matchup.pitcher.relevantHr9],
+                  ].map(([label, val]) => (
+                    <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "7px 6px", textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: parseFloat(val) > 1.3 && label.includes("HR/9") ? "#c8102e" : "#111827" }}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {matchup.factors?.map((f, i) => <div key={i} style={{ fontSize: 12, color: "#059669" }}>✓ {f}</div>)}
+              {matchup.concerns?.map((c, i) => <div key={i} style={{ fontSize: 12, color: "#d97706" }}>⚠ {c}</div>)}
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: "#f9fafb", borderRadius: 12, padding: "12px 14px", marginBottom: 12, fontSize: 12, color: "#9ca3af", textAlign: "center" }}>
+            No game scheduled today
+          </div>
+        )}
+
+        {/* ── Zone 3: Season stats grid ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+          {[
+            ["AB/HR", season?.abPerHR ? parseFloat(season.abPerHR).toFixed(1) : "—"],
+            ["wOBA",  season?.woba    ? season.woba : "—"],
+            ["OPS",   season?.ops     || "—"],
+            ["ISO",   season?.iso     || "—"],
+          ].map(([label, val]) => (
+            <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
+              <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Splits */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          {[
+            ["vs LHP", splits?.vsLHP],
+            ["vs RHP", splits?.vsRHP],
+            ["Home",   splits?.home],
+            ["Away",   splits?.away],
+          ].map(([label, s]) => (
+            <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: "9px 12px" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "#6b7280", letterSpacing: "0.1em", marginBottom: 5 }}>{label}</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <div><div style={{ fontSize: 16, fontWeight: 800, color: "#c8102e" }}>{s?.hr ?? "—"}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>HR</div></div>
+                <div><div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{s?.avg || "—"}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>AVG</div></div>
+                <div><div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{s?.ops || "—"}</div><div style={{ fontSize: 8, color: "#9ca3af" }}>OPS</div></div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Zone 4: HR Calendar (collapsible) ── */}
+        <div onClick={() => setCalOpen(o => !o)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #f3f4f6", cursor: "pointer", userSelect: "none" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#374151", letterSpacing: "0.12em" }}>
+            HR CALENDAR — {hrHistory?.length || 0} GAMES THIS SEASON
+          </span>
+          <span style={{ fontSize: 16, color: "#d1d5db", transform: calOpen ? "rotate(90deg)" : "none", transition: "0.2s" }}>›</span>
+        </div>
+
+        {calOpen && (
+          <div style={{ paddingTop: 8 }}>
+            {months.map(monthKey => {
+              const [yr, mo] = monthKey.split("-");
+              const firstDay = new Date(parseInt(yr), parseInt(mo)-1, 1).getDay();
+              const daysInMonth = new Date(parseInt(yr), parseInt(mo), 0).getDate();
+              const dayMap = {};
+              for (const g of byMonth[monthKey]) {
+                dayMap[new Date(g.date + "T12:00:00").getDate()] = g;
+              }
+              return (
+                <div key={monthKey} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280", marginBottom: 6 }}>
+                    {monthNames[parseInt(mo)-1]} {yr} · {byMonth[monthKey].reduce((s,g)=>s+g.hrs,0)} HR
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+                    {["S","M","T","W","T","F","S"].map((d,i) => (
+                      <div key={i} style={{ fontSize: 9, color: "#9ca3af", textAlign: "center" }}>{d}</div>
+                    ))}
+                    {Array.from({ length: firstDay }).map((_,i) => <div key={`e${i}`} />)}
+                    {Array.from({ length: daysInMonth }).map((_,i) => {
+                      const day = i+1;
+                      const game = dayMap[day];
+                      return (
+                        <div key={day} style={{
+                          aspectRatio: "1", borderRadius: 6,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 10, fontWeight: game ? 800 : 400,
+                          background: game ? (game.hrs > 1 ? "#c8102e" : "#fef2f2") : "transparent",
+                          color: game ? (game.hrs > 1 ? "#fff" : "#c8102e") : "#d1d5db",
+                          border: game ? `1px solid ${game.hrs > 1 ? "#c8102e" : "#fecaca"}` : "1px solid transparent",
+                        }}>
+                          {game ? (game.hrs > 1 ? `${game.hrs}` : "●") : day}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
+
 
 // ── Search ─────────────────────────────────────────────────────────────────
 function PlayerSearch({ onSelect }) {

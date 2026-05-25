@@ -490,6 +490,209 @@ app.get("/api/player-matchup/:playerId", async (req, res) => {
   }
 });
 
+// ── Player full profile — streak + matchup + history ─────────────────────
+app.get("/api/player-profile/:playerId", async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const today = getCTDate(0);
+    const year = new Date().getFullYear();
+
+    // Fetch in parallel: person info, season stats, sabermetrics, game log, splits
+    const [personRes, seasonRes, saberRes, gameLogRes, vsLRes, vsRRes, homeAwayRes] = await Promise.allSettled([
+      mlb(`/people/${playerId}`),
+      mlb(`/people/${playerId}/stats?stats=season&group=hitting&season=${year}`),
+      mlb(`/people/${playerId}/stats?stats=sabermetrics&group=hitting&season=${year}`),
+      mlb(`/people/${playerId}/stats?stats=gameLog&group=hitting&season=${year}&gameType=R`),
+      mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vl`),
+      mlb(`/people/${playerId}/stats?stats=statSplits&group=hitting&season=${year}&sitCodes=vr`),
+      mlb(`/people/${playerId}/stats?stats=homeAndAway&group=hitting&season=${year}`),
+    ]);
+
+    const person  = personRes.status  === "fulfilled" ? personRes.value?.people?.[0]  : null;
+    const season  = seasonRes.status  === "fulfilled" ? seasonRes.value?.stats?.[0]?.splits?.[0]?.stat : null;
+    const saber   = saberRes.status   === "fulfilled" ? saberRes.value?.stats?.[0]?.splits?.[0]?.stat  : null;
+    const games   = gameLogRes.status === "fulfilled" ? gameLogRes.value?.stats?.[0]?.splits || [] : [];
+    const vsL     = vsLRes.status     === "fulfilled" ? vsLRes.value?.stats?.[0]?.splits?.[0]?.stat    : null;
+    const vsR     = vsRRes.status     === "fulfilled" ? vsRRes.value?.stats?.[0]?.splits?.[0]?.stat    : null;
+    const haRes   = homeAwayRes.status === "fulfilled" ? homeAwayRes.value?.stats?.[0]?.splits || [] : [];
+
+    const homeStat = haRes.find(s => s.split?.code === "H")?.stat || null;
+    const awayStat = haRes.find(s => s.split?.code === "A")?.stat || null;
+
+    // Build last 30 days activity from game log
+    const todayDate = new Date(today + "T12:00:00");
+    const last30 = [];
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(todayDate);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      const game = games.find(g => g.date === dateStr);
+      last30.push({
+        date: dateStr,
+        played: !!game,
+        hrs: game ? parseInt(game.stat?.homeRuns || 0) : 0,
+        ab:  game ? parseInt(game.stat?.atBats   || 0) : 0,
+      });
+    }
+
+    // Streak analysis
+    const hrGames = last30.filter(d => d.hrs > 0);
+    const daysSinceLastHR = last30.findIndex(d => d.hrs > 0); // -1 if none in 30 days
+    const last7HRs  = last30.slice(0, 7).reduce((s, d) => s + d.hrs, 0);
+    const last14HRs = last30.slice(0, 14).reduce((s, d) => s + d.hrs, 0);
+    const last30HRs = last30.reduce((s, d) => s + d.hrs, 0);
+
+    // Season HR rate
+    const seasonHR = parseInt(season?.homeRuns || 0);
+    const gamesPlayed = parseInt(season?.gamesPlayed || 1);
+    const seasonHRper7 = ((seasonHR / gamesPlayed) * 7).toFixed(2);
+
+    // Hot/cold classification
+    let streak = "NEUTRAL";
+    if (last7HRs > parseFloat(seasonHRper7) * 1.5) streak = "HOT";
+    else if (last7HRs === 0 && daysSinceLastHR > 7) streak = "COLD";
+    else if (last7HRs >= 2) streak = "WARM";
+
+    // Find today's game + pitcher
+    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue,weather`);
+    const schedGames = schedData.dates?.[0]?.games || [];
+    const teamId = person?.currentTeam?.id;
+    const bats = person?.batSide?.code || "?";
+
+    const todayGame = schedGames.find(g =>
+      g.teams?.away?.team?.id === teamId ||
+      g.teams?.home?.team?.id === teamId
+    );
+
+    let matchup = null;
+    if (todayGame) {
+      const isHome = todayGame.teams?.home?.team?.id === teamId;
+      const oppPP = isHome ? todayGame.teams?.away?.probablePitcher : todayGame.teams?.home?.probablePitcher;
+      const venue = todayGame.venue?.name || "?";
+      const park = PARK_FACTORS[venue]?.factor || 100;
+      const weather = todayGame.weather || {};
+
+      let pitcher = null;
+      if (oppPP?.id) {
+        const [pInfo, pSeason, pVsL, pVsR] = await Promise.allSettled([
+          mlb(`/people/${oppPP.id}`),
+          mlb(`/people/${oppPP.id}/stats?stats=season&group=pitching&season=${year}`),
+          mlb(`/people/${oppPP.id}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vl`),
+          mlb(`/people/${oppPP.id}/stats?stats=statSplits&group=pitching&season=${year}&sitCodes=vr`),
+        ]);
+        const ps  = pSeason.status === "fulfilled" ? pSeason.value?.stats?.[0]?.splits?.[0]?.stat : null;
+        const psl = pVsL.status   === "fulfilled" ? pVsL.value?.stats?.[0]?.splits?.[0]?.stat   : null;
+        const psr = pVsR.status   === "fulfilled" ? pVsR.value?.stats?.[0]?.splits?.[0]?.stat   : null;
+        const hand = pInfo.status === "fulfilled" ? pInfo.value?.people?.[0]?.pitchHand?.code : "?";
+        const relevantSplit = bats === "L" ? psl : psr;
+        pitcher = {
+          id: oppPP.id, name: oppPP.fullName, hand,
+          era:  ps?.era  || "?",
+          hr9:  ps?.homeRunsPer9  ? parseFloat(ps.homeRunsPer9).toFixed(2)  : "?",
+          whip: ps?.whip || "?",
+          relevantHr9: relevantSplit?.homeRunsPer9
+            ? parseFloat(relevantSplit.homeRunsPer9).toFixed(2)
+            : ps?.homeRunsPer9 ? parseFloat(ps.homeRunsPer9).toFixed(2) : "?",
+          relevantAvg: relevantSplit?.avg || ps?.avg || "?",
+        };
+      }
+
+      // Edge score
+      const abHR    = parseFloat(season?.atBatsPerHomeRun) || 999;
+      const wobaNum = parseFloat(saber?.woba) || 0;
+      const hr9Num  = parseFloat(pitcher?.relevantHr9) || 0;
+      const factors = [];
+      const concerns = [];
+      if (abHR < 15)    factors.push(`Elite power rate (AB/HR ${abHR.toFixed(1)})`);
+      else if (abHR < 20) factors.push(`Strong power rate (AB/HR ${abHR.toFixed(1)})`);
+      else               concerns.push(`Moderate power rate (AB/HR ${abHR.toFixed(1)})`);
+      if (wobaNum > .370) factors.push(`Elite contact quality (wOBA ${saber?.woba?.slice(1)})`);
+      else if (wobaNum > .330) factors.push(`Solid contact quality (wOBA ${saber?.woba?.slice(1)})`);
+      if (hr9Num > 1.5)  factors.push(`Pitcher very hittable (HR/9 ${pitcher?.relevantHr9} vs ${bats}HB)`);
+      else if (hr9Num > 1.3) factors.push(`Pitcher vulnerable (HR/9 ${pitcher?.relevantHr9} vs ${bats}HB)`);
+      else if (hr9Num > 0)   concerns.push(`Pitcher HR/9 ${pitcher?.relevantHr9} vs ${bats}HB — below threshold`);
+      if (park > 108)   factors.push(`Hitter-friendly park (factor ${park})`);
+      else if (park < 93) concerns.push(`Pitcher-friendly park (factor ${park})`);
+      if (streak === "HOT" || streak === "WARM") factors.push(`${last7HRs} HR in last 7 days — hot streak`);
+      else if (streak === "COLD") concerns.push(`${daysSinceLastHR} days since last HR`);
+
+      const edge = factors.length >= 3 ? "HIGH" : factors.length >= 2 ? "MED" : concerns.length > factors.length ? "WEAK" : "MED";
+
+      matchup = {
+        gamePk: todayGame.gamePk,
+        myTeam: isHome ? todayGame.teams?.home?.team?.abbreviation : todayGame.teams?.away?.team?.abbreviation,
+        opponent: isHome ? todayGame.teams?.away?.team?.abbreviation : todayGame.teams?.home?.team?.abbreviation,
+        isHome, venue, park,
+        gameTime: todayGame.gameDate,
+        status: todayGame.status?.detailedState,
+        weather: { temp: weather.temp, wind: weather.wind, condition: weather.condition },
+        pitcher,
+        edge, factors, concerns,
+      };
+    }
+
+    // Build HR game history for calendar
+    const hrGameLog = games
+      .filter(g => parseInt(g.stat?.homeRuns || 0) > 0)
+      .map(g => ({
+        date: g.date,
+        opponent: g.opponent?.abbreviation || "?",
+        isHome: g.isHome,
+        hrs: parseInt(g.stat?.homeRuns || 0),
+        ab:  parseInt(g.stat?.atBats   || 0),
+        rbi: parseInt(g.stat?.rbi      || 0),
+        ops: g.stat?.ops || "?",
+      }))
+      .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.json({
+      info: {
+        id: playerId,
+        name: person?.fullName,
+        team: person?.currentTeam?.name,
+        teamAbb: person?.currentTeam?.abbreviation,
+        position: person?.primaryPosition?.abbreviation,
+        bats,
+        jerseyNumber: person?.primaryNumber,
+      },
+      season: {
+        hr: seasonHR,
+        avg: season?.avg,
+        ops: season?.ops,
+        slg: season?.slg,
+        obp: season?.obp,
+        woba: saber?.woba,
+        abPerHR: season?.atBatsPerHomeRun,
+        gamesPlayed,
+        iso: season?.slugging && season?.avg
+          ? (parseFloat(season.slugging) - parseFloat(season.avg)).toFixed(3) : null,
+      },
+      splits: {
+        vsLHP: { hr: vsL?.homeRuns, avg: vsL?.avg, ops: vsL?.ops, ab: vsL?.atBats },
+        vsRHP: { hr: vsR?.homeRuns, avg: vsR?.avg, ops: vsR?.ops, ab: vsR?.atBats },
+        home:  { hr: homeStat?.homeRuns, avg: homeStat?.avg, ops: homeStat?.ops },
+        away:  { hr: awayStat?.homeRuns, avg: awayStat?.avg, ops: awayStat?.ops },
+      },
+      streak: {
+        status: streak,
+        daysSinceLastHR,
+        last7HRs, last14HRs, last30HRs,
+        seasonHRper7: parseFloat(seasonHRper7),
+        last30days: last30,
+      },
+      matchup,
+      hrHistory: hrGameLog.slice(0, 40),
+      todayHRs: liveHRs.filter(hr =>
+        hr.player?.toLowerCase().includes((person?.fullName?.split(" ")[1] || "").toLowerCase())
+      ),
+    });
+
+  } catch(e) {
+    console.error("[player-profile]", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get("/api/park-factors", (req, res) => {
   const sorted = Object.entries(PARK_FACTORS)
     .map(([name, v]) => ({ name, ...v }))
