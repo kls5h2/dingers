@@ -427,7 +427,7 @@ function MatchupCard({ playerId }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
             {[
               ["AB/HR", data.hitterContext?.abPerHR],
-              ["wOBA", data.hitterContext?.woba],
+              ["wOBA", data.hitterContext?.woba ? parseFloat(data.hitterContext.woba).toFixed(3).replace(/^0/, "") : data.hitterContext?.woba],
               ["HR vs this hand", data.hitterContext?.relevantSplitHR],
               ["Split AVG", data.hitterContext?.relevantSplitAvg],
             ].map(([label, val]) => (
@@ -542,7 +542,7 @@ function DeepDive({ playerId, playerName, onClose }) {
               </span>
               <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
                 {streak?.daysSinceLastHR === 0 ? "Hit today" :
-                 streak?.daysSinceLastHR > 0 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
+                 streak?.daysSinceLastHR > 0 ? `Last HR: ${streak.daysSinceLastHR} day${streak.daysSinceLastHR === 1 ? "" : "s"} ago` : "No HR in 30 days"}
               </div>
             </div>
             <div style={{ display: "flex", gap: 12, textAlign: "center" }}>
@@ -555,11 +555,12 @@ function DeepDive({ playerId, playerName, onClose }) {
             </div>
           </div>
 
-          {/* 30-day dot strip */}
+          {/* 30-day dot strip - oldest left, today right */}
           <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
-            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i) => {
+            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i, arr) => {
               const d = new Date(day.date + "T12:00:00");
               const label = d.getDate();
+              const showLabel = i === 0 || i === arr.length - 1 || (arr.length - 1 - i) % 7 === 0;
               return (
                 <div key={i} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                   <div style={{
@@ -572,7 +573,7 @@ function DeepDive({ playerId, playerName, onClose }) {
                   }}>
                     {day.hrs > 1 ? day.hrs : ""}
                   </div>
-                  {i % 7 === 0 && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
+                  {showLabel && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
                 </div>
               );
             })}
@@ -634,12 +635,11 @@ function DeepDive({ playerId, playerName, onClose }) {
         )}
 
         {/* ── Zone 3: Season stats grid ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
           {[
             ["AB/HR", season?.abPerHR ? parseFloat(season.abPerHR).toFixed(1) : "—"],
-            ["wOBA",  season?.woba    ? season.woba : "—"],
-            ["OPS",   season?.ops     || "—"],
-            ["ISO",   season?.iso     || "—"],
+            ["wOBA",  season?.woba ? parseFloat(season.woba).toFixed(3).replace(/^0/, "") : "—"],
+            ["OPS",   season?.ops || "—"],
           ].map(([label, val]) => (
             <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
               <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
@@ -655,7 +655,10 @@ function DeepDive({ playerId, playerName, onClose }) {
             ["vs RHP", splits?.vsRHP],
             ["Home",   splits?.home],
             ["Away",   splits?.away],
-          ].map(([label, s]) => (
+          ].filter(([label, s]) => {
+            if (label === "vs LHP" || label === "vs RHP") return true;
+            return s && (s.hr != null || s.avg || s.ops);
+          }).map(([label, s]) => (
             <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: "9px 12px" }}>
               <div style={{ fontSize: 9, fontWeight: 700, color: "#6b7280", letterSpacing: "0.1em", marginBottom: 5 }}>{label}</div>
               <div style={{ display: "flex", gap: 10 }}>
