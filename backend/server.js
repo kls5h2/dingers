@@ -192,6 +192,7 @@ async function getGameHRs(gamePk) {
         distance:    p.hitData?.totalDistance || null,
         exitVelo:    p.hitData?.launchSpeed   || null,
         launchAngle: p.hitData?.launchAngle   || null,
+        pitcher:     p.matchup?.pitcher?.fullName || null,
         description: p.result?.description    || "",
         timestamp:   p.about?.endTime         || new Date().toISOString(),
         seasonHRs:   null,
@@ -874,6 +875,8 @@ app.get("/api/game/:gamePk", async (req, res) => {
           half:     p.about?.halfInning,
           distance: p.hitData?.totalDistance ? Math.round(p.hitData.totalDistance) : null,
           exitVelo: p.hitData?.launchSpeed   ? Math.round(p.hitData.launchSpeed)   : null,
+          launchAngle: p.hitData?.launchAngle ? Math.round(p.hitData.launchAngle) : null,
+          pitcher: p.matchup?.pitcher?.fullName || null,
           description: p.result?.description || "",
         };
       });
