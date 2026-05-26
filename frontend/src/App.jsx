@@ -196,21 +196,41 @@ function TodayHRs({ hrs, loading, onPlayerClick }) {
 }
 
 // ── Play Card ──────────────────────────────────────────────────────────────
+function LineupBadge({ lineup }) {
+  if (!lineup) return null;
+  const { battingOrder: bo, status } = lineup;
+  let bg, color, text;
+  if (status === "scratched") { bg = "#fef2f2"; color = "#991b1b"; text = "⚠ Scratched"; }
+  else if (status === "pending") { bg = "#f3f4f6"; color = "#6b7280"; text = "Lineup pending"; }
+  else if (bo <= 3) { bg = "#dcfce7"; color = "#166534"; text = `Batting ${bo}`; }
+  else if (bo <= 5) { bg = "#dbeafe"; color = "#1e40af"; text = `Batting ${bo}`; }
+  else if (bo <= 7) { bg = "#fef3c7"; color = "#92400e"; text = `Batting ${bo}`; }
+  else { bg = "#fee2e2"; color = "#991b1b"; text = `Batting ${bo}`; }
+  return (
+    <span style={{ background: bg, color, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, letterSpacing: 0.3 }}>
+      {text}
+    </span>
+  );
+}
+
 function PlayCard({ p, onPlayerClick }) {
   const [open, setOpen] = useState(false);
   const conf = p.confidence;
-  const c = CONF[conf] || CONF.MED;
+  const isVoid = conf === "VOID";
+  const c = isVoid ? { dot: "#9ca3af", border: "#e5e7eb" } : (CONF[conf] || CONF.MED);
   const isWatch = conf === "WATCH";
   return (
-    <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, boxShadow: conf === "HIGH" ? "0 2px 8px rgba(200,16,46,0.08)" : "none", cursor: "pointer" }}>
+    <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, boxShadow: conf === "HIGH" ? "0 2px 8px rgba(200,16,46,0.08)" : "none", cursor: "pointer", opacity: isVoid ? 0.55 : 1 }}>
       {conf === "HIGH" && <div style={{ height: 3, background: "#c8102e" }} />}
       {conf === "WATCH" && <div style={{ height: 3, background: "#3b82f6" }} />}
+      {isVoid && <div style={{ height: 3, background: "#9ca3af" }} />}
       <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.dot, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>{p.player}</div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-            {p.team} vs {p.opponent} · vs {p.pitcher} ({p.pitcherHand}){p.hotStreak ? " 🔥" : ""}
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#111827", textDecoration: isVoid ? "line-through" : "none" }}>{p.player}</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span>{p.team} vs {p.opponent} · vs {p.pitcher} ({p.pitcherHand}){p.hotStreak ? " 🔥" : ""}</span>
+            <LineupBadge lineup={p.lineup} />
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
@@ -231,6 +251,11 @@ function PlayCard({ p, onPlayerClick }) {
               </div>
             ))}
           </div>
+          {p.lineupNote && (
+            <div style={{ background: "#f9fafb", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 11, color: "#6b7280" }}>
+              <span style={{ fontWeight: 700, color: "#374151" }}>Lineup:</span> {p.lineupNote}
+            </div>
+          )}
           {p.note && (
             <div style={{ background: conf === "HIGH" ? "#fef2f2" : isWatch ? "#eff6ff" : "#fffbeb", borderRadius: 8, padding: "10px 12px", marginBottom: p.concern ? 8 : 0 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: c.dot, letterSpacing: "0.1em", marginBottom: 4 }}>WHY</div>
@@ -555,36 +580,27 @@ function DeepDive({ playerId, playerName, onClose }) {
             </div>
           </div>
 
-          {/* 30-day dot strip — oldest left, today right, grouped by week */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "space-between" }}>
-              {(() => {
-                const days = (streak?.last30days || []).slice(0, 30).reverse();
-                const weeks = [];
-                for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
-                return weeks.map((week, wi) => (
-                  <div key={wi} style={{ display: "flex", gap: 3, flex: 1, justifyContent: "space-around" }}>
-                    {week.map((day, i) => (
-                      <div key={i} style={{
-                        width: day.hrs > 1 ? 14 : 10, height: day.hrs > 1 ? 14 : 10,
-                        borderRadius: "50%",
-                        background: day.hrs > 0 ? streakColor : day.played ? "#e5e7eb" : "transparent",
-                        border: day.played && day.hrs === 0 ? "1px solid #e5e7eb" : day.hrs === 0 ? "1px dashed #e5e7eb" : "none",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: 8, fontWeight: 700, color: "#fff",
-                        flexShrink: 0,
-                      }}>
-                        {day.hrs > 1 ? day.hrs : ""}
-                      </div>
-                    ))}
+          {/* 30-day dot strip */}
+          <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
+            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i) => {
+              const d = new Date(day.date + "T12:00:00");
+              const label = d.getDate();
+              return (
+                <div key={i} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <div style={{
+                    width: day.hrs > 1 ? 14 : 10, height: day.hrs > 1 ? 14 : 10,
+                    borderRadius: "50%",
+                    background: day.hrs > 0 ? streakColor : day.played ? "#e5e7eb" : "transparent",
+                    border: day.played && day.hrs === 0 ? "1px solid #e5e7eb" : "none",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 7, fontWeight: 700, color: "#fff",
+                  }}>
+                    {day.hrs > 1 ? day.hrs : ""}
                   </div>
-                ));
-              })()}
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#9ca3af", textTransform: "uppercase", letterSpacing: 0.5 }}>
-              <span>30d ago</span>
-              <span>Today</span>
-            </div>
+                  {i % 7 === 0 && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
+                </div>
+              );
+            })}
           </div>
           <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
             Season avg: {streak?.seasonHRper7?.toFixed(1)} HR/7 games · Last 7: {streak?.last7HRs}
@@ -859,6 +875,7 @@ export default function App() {
   const normConf = (c) => {
     if (!c) return "MED";
     const u = c.toUpperCase().trim();
+    if (u === "VOID") return "VOID";
     if (u === "HIGH") return "HIGH";
     if (u === "MED" || u === "MEDIUM") return "MED";
     return "WATCH";
@@ -867,6 +884,7 @@ export default function App() {
   const highPlays  = normalizedPlays.filter(p => p.confidence === "HIGH");
   const medPlays   = normalizedPlays.filter(p => p.confidence === "MED");
   const watchPlays = normalizedPlays.filter(p => p.confidence === "WATCH");
+  const voidPlays  = normalizedPlays.filter(p => p.confidence === "VOID");
 
   return (
     <div style={{ background: "#f3f4f6", minHeight: "100vh", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", maxWidth: 480, margin: "0 auto" }}>
@@ -933,6 +951,13 @@ export default function App() {
               <Section title="PROCEED WITH CAUTION" accent="#3b82f6" badge={watchPlays.length} defaultOpen={false}>
                 <div style={{ paddingTop: 10 }}>
                   {watchPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
+                </div>
+              </Section>
+            )}
+            {voidPlays.length > 0 && (
+              <Section title="VOIDED — NOT IN LINEUP" accent="#9ca3af" badge={voidPlays.length} defaultOpen={false}>
+                <div style={{ paddingTop: 10 }}>
+                  {voidPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
                 </div>
               </Section>
             )}

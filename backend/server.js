@@ -17,6 +17,7 @@ const seenHRs    = new Set(); // "gamePk-playId" already alerted
 let   liveHRs    = [];        // today's HRs in memory
 let   lastPoll   = null;
 let   isFirstPoll = true;     // skip push notifications on startup
+let   lineupCache = { date: null, data: null, fetchedAt: 0 }; // 5 min TTL
 
 // ── MLB Stats API helpers ──────────────────────────────────────────────────
 const MLB = "https://statsapi.mlb.com/api/v1";
@@ -53,6 +54,104 @@ function getCTDate(offsetDays = 0) {
 }
 
 function todayStr() { return getCTDate(0); }
+
+// ── Lineup fetching ────────────────────────────────────────────────────────
+// Returns { "Player Name": { battingOrder, status, teamAbb, gamePk } }
+// status: 'posted' | 'pending' | 'scratched'
+async function fetchLineups() {
+  const today = todayStr();
+  const now = Date.now();
+  // 5min cache, but bust if day changed
+  if (lineupCache.date === today && lineupCache.data && (now - lineupCache.fetchedAt) < 300_000) {
+    return lineupCache.data;
+  }
+
+  try {
+    const data = await mlb(`/schedule?sportId=1&date=${today}&hydrate=lineups,probablePitcher`);
+    const games = data.dates?.[0]?.games || [];
+    const lineups = {};
+    const allPlayersByTeam = {}; // teamAbb -> Set of names in lineup
+
+    for (const g of games) {
+      const homeAbb = g.teams?.home?.team?.abbreviation;
+      const awayAbb = g.teams?.away?.team?.abbreviation;
+      const gamePk = g.gamePk;
+      const homeBatters = g.lineups?.homePlayers || [];
+      const awayBatters = g.lineups?.awayPlayers || [];
+
+      const processList = (batters, teamAbb) => {
+        if (!batters.length) return; // not posted
+        if (!allPlayersByTeam[teamAbb]) allPlayersByTeam[teamAbb] = new Set();
+        batters.forEach((p, i) => {
+          const name = p.fullName || `${p.firstName || ""} ${p.lastName || ""}`.trim();
+          if (!name) return;
+          lineups[name] = {
+            battingOrder: i + 1,
+            status: "posted",
+            teamAbb,
+            gamePk,
+            playerId: p.id,
+          };
+          allPlayersByTeam[teamAbb].add(name);
+        });
+      };
+
+      processList(homeBatters, homeAbb);
+      processList(awayBatters, awayAbb);
+    }
+
+    lineupCache = { date: today, data: { lineups, postedTeams: Object.keys(allPlayersByTeam), allPlayersByTeam }, fetchedAt: now };
+    return lineupCache.data;
+  } catch (e) {
+    console.error("[lineups]", e.message);
+    return lineupCache.data || { lineups: {}, postedTeams: [], allPlayersByTeam: {} };
+  }
+}
+
+// Enrich plays with lineup status + adjust confidence
+function enrichPlaysWithLineups(plays, lineupData) {
+  if (!plays || !lineupData) return plays;
+  const { lineups, postedTeams, allPlayersByTeam } = lineupData;
+
+  return plays.map(p => {
+    const lookup = lineups[p.player];
+    let lineup;
+
+    if (lookup) {
+      lineup = { battingOrder: lookup.battingOrder, status: "posted" };
+    } else if (postedTeams.includes(p.team)) {
+      // Team posted lineup but player not in it = scratched
+      lineup = { battingOrder: null, status: "scratched" };
+    } else {
+      lineup = { battingOrder: null, status: "pending" };
+    }
+
+    // Adjust confidence
+    let confidence = p.confidence;
+    let edgeAdj = null;
+    if (lineup.status === "scratched") {
+      confidence = "VOID";
+      edgeAdj = "Scratched from lineup";
+    } else if (lineup.status === "posted") {
+      const bo = lineup.battingOrder;
+      if (bo <= 3) {
+        edgeAdj = `Batting ${bo} — premium PA count`;
+        if (confidence === "WATCH") confidence = "MED";
+        else if (confidence === "MED") confidence = "HIGH";
+      } else if (bo >= 8) {
+        edgeAdj = `Batting ${bo} — limited PAs`;
+        if (confidence === "HIGH") confidence = "MED";
+        else if (confidence === "MED") confidence = "WATCH";
+      } else if (bo >= 6) {
+        edgeAdj = `Batting ${bo} — moderate PAs`;
+      } else {
+        edgeAdj = `Batting ${bo}`;
+      }
+    }
+
+    return { ...p, lineup, confidence, lineupNote: edgeAdj };
+  });
+}
 
 async function getTodayGames() {
   const data = await mlb(`/schedule?sportId=1&date=${todayStr()}&hydrate=linescore`);
@@ -1205,14 +1304,27 @@ app.get("/api/ai/plays-cached", async (req, res) => {
     isFirstPoll = true;
   }
 
+  // Helper: enrich + return
+  const respondEnriched = async (data) => {
+    if (!data?.plays) return res.json(data);
+    try {
+      const lineupData = await fetchLineups();
+      const enrichedPlays = enrichPlaysWithLineups(data.plays, lineupData);
+      return res.json({ ...data, plays: enrichedPlays, lineupsFetchedAt: lineupCache.fetchedAt });
+    } catch (e) {
+      console.error("[plays enrich]", e.message);
+      return res.json(data);
+    }
+  };
+
   // Serve cache if same day — locked in, no regeneration mid-day
   if (playsCache.date === today && playsCache.data) {
-    return res.json(playsCache.data);
+    return respondEnriched(playsCache.data);
   }
 
   // If already generating, return stale cache or pending status
   if (playsCache.generating) {
-    if (playsCache.data) return res.json(playsCache.data);
+    if (playsCache.data) return respondEnriched(playsCache.data);
     return res.json({ plays: [], generating: true });
   }
 
@@ -1220,14 +1332,14 @@ app.get("/api/ai/plays-cached", async (req, res) => {
   if (playsCache.data) {
     // Return stale data right away, regenerate in background
     generatePlays(today, liveHRs).catch(e => console.error("[plays bg]", e.message));
-    return res.json(playsCache.data);
+    return respondEnriched(playsCache.data);
   }
 
   // No cache at all — wait for first generation (but with timeout)
   try {
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
     const result = await Promise.race([generatePlays(today, liveHRs), timeout]);
-    res.json(result || { plays: [] });
+    return respondEnriched(result || { plays: [] });
   } catch(e) {
     console.error("[plays] first-gen error:", e.message);
     res.status(500).json({ error: e.message });
