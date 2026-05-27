@@ -199,81 +199,54 @@ function TodayHRs({ hrs, loading, onPlayerClick }) {
 function PlayCard({ p, onPlayerClick }) {
   const [open, setOpen] = useState(false);
   const conf = p.confidence;
-  const isVoid = conf === "VOID";
-  const c = isVoid ? { dot: "#9ca3af", border: "#e5e7eb" } : (CONF[conf] || CONF.MED);
-
-  const batterLabel = p.batterHand === "L" ? "Bats Left" : p.batterHand === "R" ? "Bats Right" : p.batterHand === "S" ? "Switch Hitter" : null;
-  const pitcherLabel = p.pitcherHand === "L" ? "LHP" : "RHP";
-
+  const c = CONF[conf] || CONF.MED;
+  const isWatch = conf === "WATCH";
   return (
-    <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, cursor: "pointer", opacity: isVoid ? 0.55 : 1 }}>
-      {/* Confidence stripe */}
-      <div style={{ height: 3, background: conf === "HIGH" ? "#c8102e" : conf === "MED" ? "#f59e0b" : conf === "WATCH" ? "#3b82f6" : "#e5e7eb" }} />
-      <div style={{ padding: "11px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+    <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, boxShadow: conf === "HIGH" ? "0 2px 8px rgba(200,16,46,0.08)" : "none", cursor: "pointer" }}>
+      {conf === "HIGH" && <div style={{ height: 3, background: "#c8102e" }} />}
+      {conf === "WATCH" && <div style={{ height: 3, background: "#3b82f6" }} />}
+      <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.dot, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", textDecoration: isVoid ? "line-through" : "none" }}>{p.player}</div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-            {batterLabel && <span style={{ fontWeight: 600, color: "#374151" }}>{batterLabel}</span>}
-            {batterLabel && <span>·</span>}
-            <span>vs {p.pitcher} ({pitcherLabel})</span>
-            {p.hotStreak && <span>🔥</span>}
+          <div style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>{p.player}</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+            {p.team} vs {p.opponent} · vs {p.pitcher} ({p.pitcherHand}){p.hotStreak ? " 🔥" : ""}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
           <ConfBadge conf={conf} />
           <span style={{ fontSize: 18, color: "#d1d5db", transform: open ? "rotate(90deg)" : "none", transition: "0.2s", lineHeight: 1 }}>›</span>
         </div>
       </div>
-
       {open && (
         <div style={{ borderTop: "1px solid #f3f4f6", padding: "12px 14px 14px", background: "#fafafa" }}>
-          {/* Stat chips */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
-            {[
-              ["Park", p.parkFactor, p.parkFactor > 108 ? "#059669" : p.parkFactor < 93 ? "#c8102e" : "#6b7280"],
-              ["L7 HRs", p.last7HRs, p.last7HRs >= 3 ? "#059669" : "#374151"],
-              ["vs", p.pitcherHand === "L" ? "LHP" : "RHP", "#374151"],
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {[["Park Factor", p.parkFactor, p.parkFactor > 110 ? "#c8102e" : p.parkFactor > 100 ? "#b45309" : "#374151"],
+              ["Last 7 HRs", p.last7HRs, p.last7HRs >= 3 ? "#059669" : "#374151"],
+              ["Handedness", p.pitcherHand === "L" ? "vs LHP" : "vs RHP", "#374151"],
             ].map(([label, val, color]) => (
-              <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "6px 10px", border: "1px solid #f0f0f0", textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.08em" }}>{label}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color, marginTop: 1 }}>{val ?? "—"}</div>
+              <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "8px", textAlign: "center", border: "1px solid #f0f0f0" }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3, letterSpacing: "0.08em" }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color, lineHeight: 1.3 }}>{val ?? "—"}</div>
               </div>
             ))}
-            {p.lineup?.status === "posted" && p.lineup?.battingOrder && (
-              <div style={{ background: "#fff", borderRadius: 8, padding: "6px 10px", border: "1px solid #f0f0f0", textAlign: "center" }}>
-                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.08em" }}>ORDER</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: p.lineup.battingOrder <= 3 ? "#059669" : p.lineup.battingOrder >= 7 ? "#c8102e" : "#374151", marginTop: 1 }}>#{p.lineup.battingOrder}</div>
-              </div>
-            )}
           </div>
-
-          {/* WHY - green */}
           {p.note && (
-            <div style={{ background: "#f0fdf4", borderRadius: 8, padding: "10px 12px", marginBottom: 8, border: "1px solid #bbf7d0" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#166534", letterSpacing: "0.1em", marginBottom: 4 }}>✓ WHY THIS PLAY</div>
-              <p style={{ fontSize: 13, color: "#14532d", lineHeight: 1.6, margin: 0 }}>{p.note}</p>
+            <div style={{ background: conf === "HIGH" ? "#fef2f2" : isWatch ? "#eff6ff" : "#fffbeb", borderRadius: 8, padding: "10px 12px", marginBottom: p.concern ? 8 : 0 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: c.dot, letterSpacing: "0.1em", marginBottom: 4 }}>WHY</div>
+              <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: 0 }}>{p.note}</p>
             </div>
           )}
-
-          {/* CONCERN - red */}
           {p.concern && (
-            <div style={{ background: "#fef2f2", borderRadius: 8, padding: "10px 12px", marginBottom: 8, border: "1px solid #fecaca" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#991b1b", letterSpacing: "0.1em", marginBottom: 4 }}>⚠ CONCERN</div>
-              <p style={{ fontSize: 13, color: "#7f1d1d", lineHeight: 1.6, margin: 0 }}>{p.concern}</p>
+            <div style={{ background: "#fffbeb", borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#b45309", letterSpacing: "0.1em", marginBottom: 4 }}>CONCERN</div>
+              <p style={{ fontSize: 13, color: "#92400e", lineHeight: 1.6, margin: 0 }}>{p.concern}</p>
             </div>
           )}
-
-          {p.lineupNote && (
-            <div style={{ background: "#f9fafb", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 11, color: "#6b7280", border: "1px solid #f0f0f0" }}>
-              <span style={{ fontWeight: 700, color: "#374151" }}>Lineup: </span>{p.lineupNote}
-            </div>
-          )}
-
           {p.playerId && (
             <button onClick={e => { e.stopPropagation(); onPlayerClick({ playerId: p.playerId, playerName: p.player }); }}
-              style={{ width: "100%", background: "#1a2f5e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>
-              Deep Dive →
+              style={{ width: "100%", background: "#1a2f5e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 10 }}>
+              Full Player Stats →
             </button>
           )}
         </div>
@@ -282,74 +255,206 @@ function PlayCard({ p, onPlayerClick }) {
   );
 }
 
+// ── Bottom Sheet ────────────────────────────────────────────────────────────
+function BottomSheet({ open, onClose, children }) {
+  useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 1000 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
+      <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "#f3f4f6", borderRadius: "20px 20px 0 0", maxHeight: "88vh", display: "flex", flexDirection: "column", animation: "slideUp 0.25s ease-out" }}>
+        <div style={{ padding: "12px 0 4px", display: "flex", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: "#d1d5db" }} />
+        </div>
+        <div style={{ overflowY: "auto", padding: "0 16px 40px", WebkitOverflowScrolling: "touch" }}>
+          {children}
+        </div>
+      </div>
+      <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+    </div>
+  );
+}
+
 // ── Conditions ─────────────────────────────────────────────────────────────
 function Conditions({ games, parkData }) {
-  const venues = new Set((games || []).map(g => g.venue));
-  const allParks = (parkData?.parks || []).filter(p => !venues.size || venues.has(p.name));
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null); // park object for sheet
 
-  const relevant = allParks.map(p => {
-    const game = (games || []).find(g => g.venue === p.name);
+  const venueMap = {};
+  for (const g of (games || [])) {
+    if (g.venue) venueMap[g.venue] = g;
+  }
+
+  const allParks = (parkData?.parks || []).sort((a, b) => b.factor - a.factor);
+  const filtered = allParks.filter(p =>
+    !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.city || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const factorColor = (f) => f >= 110 ? "#c8102e" : f >= 105 ? "#b45309" : f <= 90 ? "#1e40af" : f <= 95 ? "#3b82f6" : "#6b7280";
+  const factorBg    = (f) => f >= 110 ? "#fef2f2" : f >= 105 ? "#fffbeb" : f <= 90 ? "#eff6ff" : f <= 95 ? "#eff6ff" : "#f9fafb";
+  const factorLabel = (f) => f >= 110 ? "BOOST+" : f >= 105 ? "BOOST" : f <= 90 ? "SUPPRESS+" : f <= 95 ? "SUPPRESS" : "NEUTRAL";
+
+  // Build sheet info for a today park
+  const buildSheetInfo = (park, game) => {
     const wind = game?.weather?.wind || "";
     const speed = parseInt(wind) || 0;
     const windOut = wind.toLowerCase().includes("out") && speed > 6;
     const windIn  = wind.toLowerCase().includes("in")  && speed > 6;
-    const parkHot = p.factor > 108;
-    const parkDead= p.factor < 93;
-    if (!windOut && !windIn && !parkHot && !parkDead) return null;
-
-    const overall = (windOut || parkHot) && !windIn && !parkDead ? "BOOST"
+    const parkHot  = park.factor >= 105;
+    const parkDead = park.factor <= 95;
+    const overall  = (windOut || parkHot) && !windIn && !parkDead ? "BOOST"
       : (windIn || parkDead) && !windOut && !parkHot ? "SUPPRESS"
-      : "MIXED";
-
-    const factors = [];
-    if (parkHot)  factors.push(`Park factor ${p.factor} — historically hitter-friendly`);
-    if (parkDead) factors.push(`Park factor ${p.factor} — historically suppresses HRs`);
-    if (windOut)  factors.push(`Wind blowing OUT ${speed} mph — balls carry further`);
-    if (windIn)   factors.push(`Wind blowing IN ${speed} mph — knocks down fly balls`);
-    if (game?.weather?.temp) factors.push(`${game.weather.temp}°F`);
-
-    const col = { BOOST: "#059669", SUPPRESS: "#c8102e", MIXED: "#b45309" };
-    const bg2 = { BOOST: "#f0fdf4", SUPPRESS: "#fef2f2", MIXED: "#fffbeb" };
-
-    // Which hitters benefit
-    const awayAbb = game?.awayAbb || "";
-    const homeAbb = game?.homeAbb || "";
-    const beneficiary = overall === "BOOST"
-      ? `Both ${awayAbb} & ${homeAbb} hitters benefit`
-      : overall === "SUPPRESS"
-      ? `Pitchers favored in this game`
-      : `Mixed — check handedness and pull tendencies`;
-
-    return { p, overall, factors, col, bg2, awayAbb, homeAbb, beneficiary };
-  }).filter(Boolean);
-
-  if (!relevant.length) return (
-    <div style={{ padding: "16px 0", textAlign: "center", fontSize: 13, color: "#9ca3af" }}>No significant park or weather factors today.</div>
-  );
+      : (windOut || parkHot) ? "BOOST" : parkDead ? "SUPPRESS" : "NEUTRAL";
+    const col = { BOOST: "#059669", SUPPRESS: "#c8102e", NEUTRAL: "#6b7280" };
+    const bg  = { BOOST: "#f0fdf4", SUPPRESS: "#fef2f2", NEUTRAL: "#f9fafb" };
+    const gameTime = game?.gameTime
+      ? new Date(game.gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) + " CT"
+      : "";
+    return { overall, col, bg, gameTime, windOut, windIn, speed, wind };
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 8 }}>
-      {relevant.map(({ p, overall, factors, col, bg2, awayAbb, homeAbb, beneficiary }, i) => (
-        <div key={i} style={{ background: bg2[overall], borderRadius: 12, padding: "13px 14px", border: `1px solid ${col[overall]}22` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{p.name}</div>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 1 }}>{p.city} · {awayAbb} @ {homeAbb}</div>
-            </div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: col[overall], background: "#fff", padding: "3px 10px", borderRadius: 20, border: `1px solid ${col[overall]}44`, whiteSpace: "nowrap" }}>{overall}</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
-            {factors.map((f, j) => (
-              <div key={j} style={{ fontSize: 12, color: "#374151", display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: col[overall] }}>•</span> {f}
+    <div style={{ paddingTop: 8 }}>
+      {/* Search */}
+      <div style={{ display: "flex", alignItems: "center", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, padding: "8px 12px", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 14, color: "#9ca3af" }}>🔍</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search park or city..."
+          style={{ flex: 1, border: "none", outline: "none", fontSize: 13, background: "transparent", color: "#111827" }} />
+        {search && <button onClick={() => setSearch("")} style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: 18, padding: 0, lineHeight: 1 }}>×</button>}
+      </div>
+
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        {[["BOOST+", "#fef2f2", "#c8102e"], ["BOOST", "#fffbeb", "#b45309"], ["NEUTRAL", "#f9fafb", "#6b7280"], ["SUPPRESS", "#eff6ff", "#3b82f6"], ["SUPPRESS+", "#eff6ff", "#1e40af"]].map(([label, bg, color]) => (
+          <span key={label} style={{ fontSize: 9, fontWeight: 700, color, background: bg, border: `1px solid ${color}33`, borderRadius: 6, padding: "2px 6px" }}>{label}</span>
+        ))}
+        <span style={{ fontSize: 9, color: "#9ca3af", alignSelf: "center" }}>· Tap today's games for details</span>
+      </div>
+
+      {/* Park list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {filtered.map((p, i) => {
+          const game = venueMap[p.name];
+          const isToday = !!game;
+          const fc = factorColor(p.factor);
+          const fb = factorBg(p.factor);
+          const fl = factorLabel(p.factor);
+          const sheet = isToday ? buildSheetInfo(p, game) : null;
+
+          return (
+            <div key={i}
+              onClick={isToday ? () => setSelected({ park: p, game, sheet }) : undefined}
+              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", background: isToday ? fb : "#fff", borderRadius: 8, border: isToday ? `1px solid ${fc}33` : "1px solid #f3f4f6", cursor: isToday ? "pointer" : "default" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: isToday ? 700 : 500, color: "#111827", display: "flex", alignItems: "center", gap: 6 }}>
+                  {p.name}
+                  {isToday && <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#1a2f5e", borderRadius: 6, padding: "1px 5px" }}>TODAY</span>}
+                  {isToday && game?.awayAbb && <span style={{ fontSize: 10, color: "#6b7280" }}>{game.awayAbb} @ {game.homeAbb}</span>}
+                </div>
+                {p.city && <div style={{ fontSize: 10, color: "#9ca3af" }}>{p.city}</div>}
               </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: col[overall], background: "#fff", borderRadius: 8, padding: "6px 10px" }}>
-            → {beneficiary}
-          </div>
-        </div>
-      ))}
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: fc }}>{p.factor}</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: fc }}>{fl}</div>
+              </div>
+              {isToday && <span style={{ fontSize: 14, color: "#9ca3af" }}>›</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Park detail bottom sheet */}
+      <BottomSheet open={!!selected} onClose={() => setSelected(null)}>
+        {selected && (() => {
+          const { park, game, sheet } = selected;
+          const { overall, col, bg, gameTime, windOut, windIn, speed, wind } = sheet;
+          const gameTimeFmt = game?.gameTime
+            ? new Date(game.gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) + " CT"
+            : "";
+          return (
+            <div style={{ paddingTop: 8 }}>
+              {/* Header */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#111827" }}>{park.name}</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>{park.city}</div>
+              </div>
+
+              {/* Game info */}
+              <div style={{ background: "#1a2f5e", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{game?.awayAbb} @ {game?.homeAbb}</div>
+                {gameTimeFmt && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>{gameTimeFmt}</div>}
+              </div>
+
+              {/* Overall rating */}
+              <div style={{ background: bg[overall], borderRadius: 12, padding: "12px 14px", marginBottom: 12, border: `1px solid ${col[overall]}33` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: col[overall], letterSpacing: "0.1em" }}>TODAY'S HR ENVIRONMENT</div>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: col[overall], background: "#fff", padding: "3px 10px", borderRadius: 20, border: `1px solid ${col[overall]}44` }}>{overall}</span>
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1, background: "#fff", borderRadius: 8, padding: "10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.1em" }}>PARK FACTOR</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: factorColor(park.factor), lineHeight: 1.2 }}>{park.factor}</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: factorColor(park.factor) }}>{factorLabel(park.factor)}</div>
+                  </div>
+                  {game?.weather?.temp && (
+                    <div style={{ flex: 1, background: "#fff", borderRadius: 8, padding: "10px", textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.1em" }}>TEMP</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: "#374151", lineHeight: 1.2 }}>{game.weather.temp}°</div>
+                      <div style={{ fontSize: 9, color: "#9ca3af" }}>Fahrenheit</div>
+                    </div>
+                  )}
+                  {speed > 0 && (
+                    <div style={{ flex: 1, background: "#fff", borderRadius: 8, padding: "10px", textAlign: "center" }}>
+                      <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.1em" }}>WIND</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: windOut ? "#059669" : windIn ? "#c8102e" : "#374151", lineHeight: 1.2 }}>{speed}</div>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: windOut ? "#059669" : windIn ? "#c8102e" : "#9ca3af" }}>mph {windOut ? "OUT ↑" : windIn ? "IN ↓" : wind.split(" ").pop() || ""}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Plain English summary */}
+              <div style={{ background: "#f9fafb", borderRadius: 12, padding: "12px 14px", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", letterSpacing: "0.1em", marginBottom: 6 }}>WHAT THIS MEANS</div>
+                <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+                  {park.factor >= 110
+                    ? "This is one of the most hitter-friendly parks in baseball — home runs fly out here at a significantly higher rate than average."
+                    : park.factor >= 105
+                    ? "Slightly favors hitters. Home runs are a bit more likely here than at a neutral park."
+                    : park.factor <= 90
+                    ? "One of the toughest parks for home runs in baseball. The ball doesn't carry well — avoid HR props here unless the matchup is exceptional."
+                    : park.factor <= 95
+                    ? "Slightly suppresses home runs. Not a dealbreaker, but something to factor in."
+                    : "Neutral park — home run rates are roughly average here. Matchup and weather matter more than venue today."}
+                  {windOut && ` Wind blowing out at ${speed} mph adds extra carry — a good boost for fly ball hitters.`}
+                  {windIn  && ` Wind blowing in at ${speed} mph will knock down fly balls — a negative for hitters today.`}
+                  {game?.weather?.temp >= 85 && " Hot temperatures help the ball travel farther."}
+                  {game?.weather?.temp <= 50 && " Cold temperatures can deaden the ball slightly."}
+                </div>
+              </div>
+
+              {/* Who benefits */}
+              <div style={{ background: overall === "BOOST" ? "#f0fdf4" : overall === "SUPPRESS" ? "#fef2f2" : "#f9fafb", borderRadius: 12, padding: "12px 14px", border: `1px solid ${col[overall]}22` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: col[overall], letterSpacing: "0.1em", marginBottom: 4 }}>
+                  {overall === "BOOST" ? "✓ WHO BENEFITS" : overall === "SUPPRESS" ? "⚠ CAUTION" : "CONTEXT"}
+                </div>
+                <div style={{ fontSize: 13, color: "#374151", lineHeight: 1.5 }}>
+                  {overall === "BOOST"
+                    ? `Both ${game?.awayAbb || "away"} and ${game?.homeAbb || "home"} hitters get a boost today. Look for power hitters with strong recent form in this game.`
+                    : overall === "SUPPRESS"
+                    ? `Pitcher-friendly conditions today at ${park.name}. Raise your bar on HR props — only back hitters with exceptional matchups.`
+                    : `Neutral conditions — park and weather aren't a significant factor either way. Focus on the matchup and pitcher stats.`}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+      </BottomSheet>
     </div>
   );
 }
@@ -560,30 +665,52 @@ function DeepDive({ playerId, playerName, onClose }) {
           </div>
         )}
 
-        {/* ── Zone 1: Streak block ── */}
+        {/* ── Zone 1: Current streak + 30-day dot row ── */}
         <div style={{ background: streakBgCol, borderRadius: 12, padding: "12px 14px", marginBottom: 12, border: `1px solid ${streakColor}22` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <div>
               <span style={{ fontSize: 11, fontWeight: 700, color: streakColor, letterSpacing: "0.1em" }}>
                 {streak?.status === "HOT" ? "🔥 HOT STREAK" : streak?.status === "WARM" ? "📈 WARMING UP" : streak?.status === "COLD" ? "❄️ COLD STRETCH" : "📊 NEUTRAL"}
               </span>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3 }}>
-                {streak?.daysSinceLastHR === 0 ? "Last HR: Today" :
-                 streak?.daysSinceLastHR === 1 ? "Last HR: Yesterday" :
-                 streak?.daysSinceLastHR > 1 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
-              </div>
-              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
-                Season avg: {streak?.seasonHRper7?.toFixed(1)} HR / 7 games
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                {streak?.daysSinceLastHR === 0 ? "Hit today" :
+                 streak?.daysSinceLastHR > 0 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 16, textAlign: "center" }}>
+            <div style={{ display: "flex", gap: 12, textAlign: "center" }}>
               {[["L7", streak?.last7HRs], ["L14", streak?.last14HRs], ["L30", streak?.last30HRs]].map(([label, val]) => (
                 <div key={label}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af", lineHeight: 1 }}>{val ?? "—"}</div>
-                  <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 2 }}>{label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af" }}>{val}</div>
+                  <div style={{ fontSize: 9, color: "#9ca3af" }}>{label}</div>
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* 30-day dot strip */}
+          <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
+            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i) => {
+              const d = new Date(day.date + "T12:00:00");
+              const label = d.getDate();
+              return (
+                <div key={i} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <div style={{
+                    width: day.hrs > 1 ? 14 : 10, height: day.hrs > 1 ? 14 : 10,
+                    borderRadius: "50%",
+                    background: day.hrs > 0 ? streakColor : day.played ? "#e5e7eb" : "transparent",
+                    border: day.played && day.hrs === 0 ? "1px solid #e5e7eb" : "none",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 7, fontWeight: 700, color: "#fff",
+                  }}>
+                    {day.hrs > 1 ? day.hrs : ""}
+                  </div>
+                  {i % 7 === 0 && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
+            Season avg: {streak?.seasonHRper7?.toFixed(1)} HR/7 games · Last 7: {streak?.last7HRs}
           </div>
         </div>
 
@@ -793,6 +920,7 @@ export default function App() {
   const [leaders,    setLeaders]  = useState({ data: null });
   const [games,      setGames]    = useState({ data: null });
   const [deepDive,   setDeepDive] = useState(null);
+  const [sheet,      setSheet]    = useState(null);
   const [refreshing, setRefresh]  = useState(false);
   const pollRef = useRef(null);
 
@@ -826,10 +954,13 @@ export default function App() {
   }, []);
 
   function handlePlayerClick(p) {
-    if (p?.playerId || p?.id) {
-      setDeepDive({ playerId: p.playerId || p.id, playerName: p.player || p.name });
-      setTab("stats");
+    if (!(p?.playerId || p?.id)) return;
+    const player = { playerId: p.playerId || p.id, playerName: p.player || p.playerName || p.name };
+    if (tab === "stats") {
+      setDeepDive(player);
       window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      setSheet(player);
     }
   }
 
@@ -855,35 +986,14 @@ export default function App() {
   const normConf = (c) => {
     if (!c) return "MED";
     const u = c.toUpperCase().trim();
-    if (u === "VOID") return "VOID";
     if (u === "HIGH") return "HIGH";
     if (u === "MED" || u === "MEDIUM") return "MED";
     return "WATCH";
   };
   const normalizedPlays = allPlays.map(p => ({ ...p, confidence: normConf(p.confidence) }));
-
-  // Group plays by game, sorted by gameTime (earliest first)
-  const gameGroups = (() => {
-    const groups = {};
-    for (const p of normalizedPlays) {
-      const key = p.gameKey || `${p.team}@${p.opponent}`;
-      if (!groups[key]) groups[key] = { key, gameTime: p.gameTime, plays: [] };
-      groups[key].plays.push(p);
-    }
-    return Object.values(groups).sort((a, b) => {
-      if (!a.gameTime) return 1;
-      if (!b.gameTime) return -1;
-      return new Date(a.gameTime) - new Date(b.gameTime);
-    });
-  })();
-
-  const confOrder = { HIGH: 0, MED: 1, WATCH: 2, VOID: 3 };
-  const fmtGameTime = (iso) => {
-    if (!iso) return "";
-    try {
-      return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago", timeZoneName: "short" });
-    } catch { return ""; }
-  };
+  const highPlays  = normalizedPlays.filter(p => p.confidence === "HIGH");
+  const medPlays   = normalizedPlays.filter(p => p.confidence === "MED");
+  const watchPlays = normalizedPlays.filter(p => p.confidence === "WATCH");
 
   return (
     <div style={{ background: "#f3f4f6", minHeight: "100vh", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", maxWidth: 480, margin: "0 auto" }}>
@@ -911,6 +1021,11 @@ export default function App() {
 
       <LiveBar hrs={liveHRs} />
 
+      {/* Global player bottom sheet */}
+      <BottomSheet open={!!sheet} onClose={() => setSheet(null)}>
+        {sheet && <DeepDive playerId={sheet.playerId} playerName={sheet.playerName} onClose={() => setSheet(null)} />}
+      </BottomSheet>
+
       <div style={{ padding: "14px 14px 80px" }}>
 
         {/* ── TODAY TAB ── */}
@@ -932,45 +1047,27 @@ export default function App() {
             {plays.error && (
               <div style={{ background: "#fef2f2", borderRadius: 12, padding: 16, color: "#c8102e", fontSize: 13 }}>⚠ {plays.error}</div>
             )}
-
-            {/* 🔥 legend */}
-            {normalizedPlays.length > 0 && (
-              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                <span>🔥</span><span>= on a hot streak recently</span>
-                <span style={{ marginLeft: 8 }}>· Sorted by game time (CT)</span>
-              </div>
-            )}
-
-            {/* Game groups */}
-            {gameGroups.map(group => {
-              const sortedPlays = [...group.plays].sort((a, b) => (confOrder[a.confidence] ?? 9) - (confOrder[b.confidence] ?? 9));
-              const highCount  = sortedPlays.filter(p => p.confidence === "HIGH").length;
-              const medCount   = sortedPlays.filter(p => p.confidence === "MED").length;
-              const watchCount = sortedPlays.filter(p => p.confidence === "WATCH").length;
-              const timeStr = fmtGameTime(group.gameTime);
-
-              return (
-                <div key={group.key} style={{ marginBottom: 20 }}>
-                  {/* Game header */}
-                  <div style={{ background: "#1a2f5e", borderRadius: "10px 10px 0 0", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{group.key.replace("@", " @ ")}</div>
-                      {timeStr && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginTop: 1 }}>{timeStr}</div>}
-                    </div>
-                    <div style={{ display: "flex", gap: 4 }}>
-                      {highCount > 0  && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#c8102e", borderRadius: 8, padding: "2px 7px" }}>{highCount} HIGH</span>}
-                      {medCount > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: "#92400e", background: "#fef3c7", borderRadius: 8, padding: "2px 7px" }}>{medCount} MED</span>}
-                      {watchCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 8, padding: "2px 7px" }}>{watchCount} WATCH</span>}
-                    </div>
-                  </div>
-                  {/* Cards */}
-                  <div style={{ background: "#fff", borderRadius: "0 0 10px 10px", border: "1px solid #e5e7eb", borderTop: "none", padding: "8px 8px 4px" }}>
-                    {sortedPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
-                  </div>
+            {highPlays.length > 0 && (
+              <Section title="HIGH CONFIDENCE" accent="#c8102e" badge={highPlays.length} defaultOpen={true}>
+                <div style={{ paddingTop: 10 }}>
+                  {highPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
                 </div>
-              );
-            })}
-
+              </Section>
+            )}
+            {medPlays.length > 0 && (
+              <Section title="SOLID PLAYS" accent="#f59e0b" badge={medPlays.length} defaultOpen={true}>
+                <div style={{ paddingTop: 10 }}>
+                  {medPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
+                </div>
+              </Section>
+            )}
+            {watchPlays.length > 0 && (
+              <Section title="PROCEED WITH CAUTION" accent="#3b82f6" badge={watchPlays.length} defaultOpen={false}>
+                <div style={{ paddingTop: 10 }}>
+                  {watchPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
+                </div>
+              </Section>
+            )}
             {!plays.loading && normalizedPlays.length === 0 && !plays.error && (
               <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: 14 }}>No plays available yet.</div>
             )}
