@@ -9,40 +9,6 @@ async function apiFetch(path, opts = {}) {
 const fmt = (n) => n == null ? "—" : Math.round(n);
 const fmtAvg = (n) => n == null ? "—" : Number(n).toFixed(3).replace(/^0/, "");
 
-// ── Bottom Sheet ────────────────────────────────────────────────────────────
-function BottomSheet({ open, onClose, children }) {
-  useEffect(() => {
-    if (open) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = "";
-    return () => { document.body.style.overflow = ""; };
-  }, [open]);
-
-  if (!open) return null;
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000 }}>
-      {/* Backdrop */}
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} />
-      {/* Sheet */}
-      <div style={{
-        position: "absolute", bottom: 0, left: 0, right: 0,
-        background: "#f3f4f6", borderRadius: "20px 20px 0 0",
-        maxHeight: "88vh", display: "flex", flexDirection: "column",
-        animation: "slideUp 0.25s ease-out",
-      }}>
-        {/* Handle */}
-        <div style={{ padding: "12px 0 4px", display: "flex", justifyContent: "center", flexShrink: 0 }}>
-          <div style={{ width: 36, height: 4, borderRadius: 2, background: "#d1d5db" }} />
-        </div>
-        {/* Scrollable content */}
-        <div style={{ overflowY: "auto", padding: "0 14px 32px", WebkitOverflowScrolling: "touch" }}>
-          {children}
-        </div>
-      </div>
-      <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
-    </div>
-  );
-}
-
 const CONF = {
   HIGH:  { label: "HIGH",    color: "#fff",    bg: "#c8102e", dot: "#c8102e", border: "#fecaca" },
   MED:   { label: "MED",     color: "#92400e", bg: "#fef3c7", dot: "#f59e0b", border: "#fde68a" },
@@ -204,28 +170,24 @@ function TodayHRs({ hrs, loading, onPlayerClick }) {
     <div>
       {hrs.map((hr, i) => (
         <div key={hr.id || i} onClick={() => hr.playerId && onPlayerClick({ playerId: hr.playerId, playerName: hr.player })}
-          style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 0", borderBottom: i < hrs.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
-          <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 16 }}>💥</div>
+          style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < hrs.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
+          <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}>💥</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{hr.player}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{hr.player}</div>
               {hr.count > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#c8102e", borderRadius: 10, padding: "1px 7px" }}>{hr.count}x</span>}
             </div>
-            <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-              {hr.team && <span style={{ fontWeight: 600, color: "#374151" }}>{hr.team}</span>}
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
+              {hr.team ? <span style={{ fontWeight: 600, color: "#374151" }}>{hr.team}</span> : ""}
               {hr.opponent ? ` vs ${hr.opponent}` : ""}
               {hr.inning ? ` · Inn. ${hr.inning}` : ""}
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {hr.distance && <span style={{ fontSize: 10, fontWeight: 600, color: "#374151", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>📏 {fmt(hr.distance)} ft</span>}
-              {hr.exitVelo && <span style={{ fontSize: 10, fontWeight: 600, color: "#374151", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>⚡ {fmt(hr.exitVelo)} mph</span>}
-              {hr.launchAngle != null && <span style={{ fontSize: 10, fontWeight: 600, color: "#374151", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>📐 {hr.launchAngle}°</span>}
-              {hr.pitcher && <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>Pitcher: {hr.pitcher}</span>}
+              {hr.distance ? ` · ${fmt(hr.distance)} ft` : ""}
+              {hr.exitVelo ? ` · ${fmt(hr.exitVelo)} mph` : ""}
             </div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
-            {hr.seasonHRs && <div style={{ fontSize: 22, fontWeight: 800, color: "#c8102e", lineHeight: 1 }}>{hr.seasonHRs}</div>}
-            {hr.seasonHRs && <div style={{ fontSize: 9, color: "#9ca3af" }}>HR 2026</div>}
+            {hr.seasonHRs && <div style={{ fontSize: 20, fontWeight: 800, color: "#c8102e", lineHeight: 1 }}>{hr.seasonHRs}</div>}
+            {hr.seasonHRs && <div style={{ fontSize: 9, color: "#9ca3af" }}>HR</div>}
           </div>
         </div>
       ))}
@@ -237,54 +199,81 @@ function TodayHRs({ hrs, loading, onPlayerClick }) {
 function PlayCard({ p, onPlayerClick }) {
   const [open, setOpen] = useState(false);
   const conf = p.confidence;
-  const c = CONF[conf] || CONF.MED;
-  const isWatch = conf === "WATCH";
+  const isVoid = conf === "VOID";
+  const c = isVoid ? { dot: "#9ca3af", border: "#e5e7eb" } : (CONF[conf] || CONF.MED);
+
+  const batterLabel = p.batterHand === "L" ? "Bats Left" : p.batterHand === "R" ? "Bats Right" : p.batterHand === "S" ? "Switch Hitter" : null;
+  const pitcherLabel = p.pitcherHand === "L" ? "LHP" : "RHP";
+
   return (
-    <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, boxShadow: conf === "HIGH" ? "0 2px 8px rgba(200,16,46,0.08)" : "none", cursor: "pointer" }}>
-      {conf === "HIGH" && <div style={{ height: 3, background: "#c8102e" }} />}
-      {conf === "WATCH" && <div style={{ height: 3, background: "#3b82f6" }} />}
-      <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+    <div onClick={() => setOpen(o => !o)} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${c.border}`, background: "#fff", marginBottom: 8, cursor: "pointer", opacity: isVoid ? 0.55 : 1 }}>
+      {/* Confidence stripe */}
+      <div style={{ height: 3, background: conf === "HIGH" ? "#c8102e" : conf === "MED" ? "#f59e0b" : conf === "WATCH" ? "#3b82f6" : "#e5e7eb" }} />
+      <div style={{ padding: "11px 14px", display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.dot, flexShrink: 0 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#111827" }}>{p.player}</div>
-          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-            {p.team} vs {p.opponent} · vs {p.pitcher} ({p.pitcherHand}){p.hotStreak ? " 🔥" : ""}
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", textDecoration: isVoid ? "line-through" : "none" }}>{p.player}</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+            {batterLabel && <span style={{ fontWeight: 600, color: "#374151" }}>{batterLabel}</span>}
+            {batterLabel && <span>·</span>}
+            <span>vs {p.pitcher} ({pitcherLabel})</span>
+            {p.hotStreak && <span>🔥</span>}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <ConfBadge conf={conf} />
           <span style={{ fontSize: 18, color: "#d1d5db", transform: open ? "rotate(90deg)" : "none", transition: "0.2s", lineHeight: 1 }}>›</span>
         </div>
       </div>
+
       {open && (
         <div style={{ borderTop: "1px solid #f3f4f6", padding: "12px 14px 14px", background: "#fafafa" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-            {[["Park Factor", p.parkFactor, p.parkFactor > 110 ? "#c8102e" : p.parkFactor > 100 ? "#b45309" : "#374151"],
-              ["Last 7 HRs", p.last7HRs, p.last7HRs >= 3 ? "#059669" : "#374151"],
-              ["Handedness", p.pitcherHand === "L" ? "vs LHP" : "vs RHP", "#374151"],
+          {/* Stat chips */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+            {[
+              ["Park", p.parkFactor, p.parkFactor > 108 ? "#059669" : p.parkFactor < 93 ? "#c8102e" : "#6b7280"],
+              ["L7 HRs", p.last7HRs, p.last7HRs >= 3 ? "#059669" : "#374151"],
+              ["vs", p.pitcherHand === "L" ? "LHP" : "RHP", "#374151"],
             ].map(([label, val, color]) => (
-              <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "8px", textAlign: "center", border: "1px solid #f0f0f0" }}>
-                <div style={{ fontSize: 9, color: "#9ca3af", marginBottom: 3, letterSpacing: "0.08em" }}>{label}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color, lineHeight: 1.3 }}>{val ?? "—"}</div>
+              <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "6px 10px", border: "1px solid #f0f0f0", textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.08em" }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color, marginTop: 1 }}>{val ?? "—"}</div>
               </div>
             ))}
+            {p.lineup?.status === "posted" && p.lineup?.battingOrder && (
+              <div style={{ background: "#fff", borderRadius: 8, padding: "6px 10px", border: "1px solid #f0f0f0", textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: "#9ca3af", letterSpacing: "0.08em" }}>ORDER</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: p.lineup.battingOrder <= 3 ? "#059669" : p.lineup.battingOrder >= 7 ? "#c8102e" : "#374151", marginTop: 1 }}>#{p.lineup.battingOrder}</div>
+              </div>
+            )}
           </div>
+
+          {/* WHY - green */}
           {p.note && (
-            <div style={{ background: conf === "HIGH" ? "#fef2f2" : isWatch ? "#eff6ff" : "#fffbeb", borderRadius: 8, padding: "10px 12px", marginBottom: p.concern ? 8 : 0 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: c.dot, letterSpacing: "0.1em", marginBottom: 4 }}>WHY</div>
-              <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: 0 }}>{p.note}</p>
+            <div style={{ background: "#f0fdf4", borderRadius: 8, padding: "10px 12px", marginBottom: 8, border: "1px solid #bbf7d0" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#166534", letterSpacing: "0.1em", marginBottom: 4 }}>✓ WHY THIS PLAY</div>
+              <p style={{ fontSize: 13, color: "#14532d", lineHeight: 1.6, margin: 0 }}>{p.note}</p>
             </div>
           )}
+
+          {/* CONCERN - red */}
           {p.concern && (
-            <div style={{ background: "#fffbeb", borderRadius: 8, padding: "10px 12px" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#b45309", letterSpacing: "0.1em", marginBottom: 4 }}>CONCERN</div>
-              <p style={{ fontSize: 13, color: "#92400e", lineHeight: 1.6, margin: 0 }}>{p.concern}</p>
+            <div style={{ background: "#fef2f2", borderRadius: 8, padding: "10px 12px", marginBottom: 8, border: "1px solid #fecaca" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#991b1b", letterSpacing: "0.1em", marginBottom: 4 }}>⚠ CONCERN</div>
+              <p style={{ fontSize: 13, color: "#7f1d1d", lineHeight: 1.6, margin: 0 }}>{p.concern}</p>
             </div>
           )}
+
+          {p.lineupNote && (
+            <div style={{ background: "#f9fafb", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 11, color: "#6b7280", border: "1px solid #f0f0f0" }}>
+              <span style={{ fontWeight: 700, color: "#374151" }}>Lineup: </span>{p.lineupNote}
+            </div>
+          )}
+
           {p.playerId && (
             <button onClick={e => { e.stopPropagation(); onPlayerClick({ playerId: p.playerId, playerName: p.player }); }}
-              style={{ width: "100%", background: "#1a2f5e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 10 }}>
-              Full Player Stats →
+              style={{ width: "100%", background: "#1a2f5e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 12, fontWeight: 600, cursor: "pointer", marginTop: 4 }}>
+              Deep Dive →
             </button>
           )}
         </div>
@@ -571,52 +560,30 @@ function DeepDive({ playerId, playerName, onClose }) {
           </div>
         )}
 
-        {/* ── Zone 1: Current streak + 30-day dot row ── */}
+        {/* ── Zone 1: Streak block ── */}
         <div style={{ background: streakBgCol, borderRadius: 12, padding: "12px 14px", marginBottom: 12, border: `1px solid ${streakColor}22` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <span style={{ fontSize: 11, fontWeight: 700, color: streakColor, letterSpacing: "0.1em" }}>
                 {streak?.status === "HOT" ? "🔥 HOT STREAK" : streak?.status === "WARM" ? "📈 WARMING UP" : streak?.status === "COLD" ? "❄️ COLD STRETCH" : "📊 NEUTRAL"}
               </span>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                {streak?.daysSinceLastHR === 0 ? "Hit today" :
-                 streak?.daysSinceLastHR > 0 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3 }}>
+                {streak?.daysSinceLastHR === 0 ? "Last HR: Today" :
+                 streak?.daysSinceLastHR === 1 ? "Last HR: Yesterday" :
+                 streak?.daysSinceLastHR > 1 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
+              </div>
+              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
+                Season avg: {streak?.seasonHRper7?.toFixed(1)} HR / 7 games
               </div>
             </div>
-            <div style={{ display: "flex", gap: 12, textAlign: "center" }}>
+            <div style={{ display: "flex", gap: 16, textAlign: "center" }}>
               {[["L7", streak?.last7HRs], ["L14", streak?.last14HRs], ["L30", streak?.last30HRs]].map(([label, val]) => (
                 <div key={label}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af" }}>{val}</div>
-                  <div style={{ fontSize: 9, color: "#9ca3af" }}>{label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af", lineHeight: 1 }}>{val ?? "—"}</div>
+                  <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 2 }}>{label}</div>
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* 30-day dot strip */}
-          <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
-            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i) => {
-              const d = new Date(day.date + "T12:00:00");
-              const label = d.getDate();
-              return (
-                <div key={i} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                  <div style={{
-                    width: day.hrs > 1 ? 14 : 10, height: day.hrs > 1 ? 14 : 10,
-                    borderRadius: "50%",
-                    background: day.hrs > 0 ? streakColor : day.played ? "#e5e7eb" : "transparent",
-                    border: day.played && day.hrs === 0 ? "1px solid #e5e7eb" : "none",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 7, fontWeight: 700, color: "#fff",
-                  }}>
-                    {day.hrs > 1 ? day.hrs : ""}
-                  </div>
-                  {i % 7 === 0 && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
-            Season avg: {streak?.seasonHRper7?.toFixed(1)} HR/7 games · Last 7: {streak?.last7HRs}
           </div>
         </div>
 
@@ -706,18 +673,11 @@ function DeepDive({ playerId, playerName, onClose }) {
         </div>
 
         {/* ── Zone 4: HR Calendar (collapsible) ── */}
-        <div onClick={() => setCalOpen(o => !o)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 14px", margin: "4px -14px 0", background: "#1a2f5e", borderRadius: calOpen ? "10px 10px 0 0" : 10, cursor: "pointer", userSelect: "none" }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", letterSpacing: "0.12em" }}>
-            📅 HR CALENDAR — {hrHistory?.length || 0} GAMES
+        <div onClick={() => setCalOpen(o => !o)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderTop: "1px solid #f3f4f6", cursor: "pointer", userSelect: "none" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#374151", letterSpacing: "0.12em" }}>
+            HR CALENDAR — {hrHistory?.length || 0} GAMES THIS SEASON
           </span>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {!calOpen && hrHistory?.length > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#c8102e", background: "#fff", borderRadius: 10, padding: "1px 7px" }}>
-                {(hrHistory || []).reduce((s, g) => s + (g.hrs || 0), 0)} HR
-              </span>
-            )}
-            <span style={{ fontSize: 16, color: "rgba(255,255,255,0.5)", transform: calOpen ? "rotate(90deg)" : "none", transition: "0.2s" }}>›</span>
-          </div>
+          <span style={{ fontSize: 16, color: "#d1d5db", transform: calOpen ? "rotate(90deg)" : "none", transition: "0.2s" }}>›</span>
         </div>
 
         {calOpen && (
@@ -833,7 +793,6 @@ export default function App() {
   const [leaders,    setLeaders]  = useState({ data: null });
   const [games,      setGames]    = useState({ data: null });
   const [deepDive,   setDeepDive] = useState(null);
-  const [sheet,      setSheet]    = useState(null); // { playerId, playerName }
   const [refreshing, setRefresh]  = useState(false);
   const pollRef = useRef(null);
 
@@ -867,13 +826,10 @@ export default function App() {
   }, []);
 
   function handlePlayerClick(p) {
-    if (!(p?.playerId || p?.id)) return;
-    const player = { playerId: p.playerId || p.id, playerName: p.player || p.playerName || p.name };
-    if (tab === "stats") {
-      setDeepDive(player);
+    if (p?.playerId || p?.id) {
+      setDeepDive({ playerId: p.playerId || p.id, playerName: p.player || p.name });
+      setTab("stats");
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } else {
-      setSheet(player);
     }
   }
 
@@ -899,14 +855,35 @@ export default function App() {
   const normConf = (c) => {
     if (!c) return "MED";
     const u = c.toUpperCase().trim();
+    if (u === "VOID") return "VOID";
     if (u === "HIGH") return "HIGH";
     if (u === "MED" || u === "MEDIUM") return "MED";
     return "WATCH";
   };
   const normalizedPlays = allPlays.map(p => ({ ...p, confidence: normConf(p.confidence) }));
-  const highPlays  = normalizedPlays.filter(p => p.confidence === "HIGH");
-  const medPlays   = normalizedPlays.filter(p => p.confidence === "MED");
-  const watchPlays = normalizedPlays.filter(p => p.confidence === "WATCH");
+
+  // Group plays by game, sorted by gameTime (earliest first)
+  const gameGroups = (() => {
+    const groups = {};
+    for (const p of normalizedPlays) {
+      const key = p.gameKey || `${p.team}@${p.opponent}`;
+      if (!groups[key]) groups[key] = { key, gameTime: p.gameTime, plays: [] };
+      groups[key].plays.push(p);
+    }
+    return Object.values(groups).sort((a, b) => {
+      if (!a.gameTime) return 1;
+      if (!b.gameTime) return -1;
+      return new Date(a.gameTime) - new Date(b.gameTime);
+    });
+  })();
+
+  const confOrder = { HIGH: 0, MED: 1, WATCH: 2, VOID: 3 };
+  const fmtGameTime = (iso) => {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago", timeZoneName: "short" });
+    } catch { return ""; }
+  };
 
   return (
     <div style={{ background: "#f3f4f6", minHeight: "100vh", fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif", maxWidth: 480, margin: "0 auto" }}>
@@ -934,11 +911,6 @@ export default function App() {
 
       <LiveBar hrs={liveHRs} />
 
-      {/* ── Global Player Bottom Sheet ── */}
-      <BottomSheet open={!!sheet} onClose={() => setSheet(null)}>
-        {sheet && <DeepDive playerId={sheet.playerId} playerName={sheet.playerName} onClose={() => setSheet(null)} />}
-      </BottomSheet>
-
       <div style={{ padding: "14px 14px 80px" }}>
 
         {/* ── TODAY TAB ── */}
@@ -960,27 +932,45 @@ export default function App() {
             {plays.error && (
               <div style={{ background: "#fef2f2", borderRadius: 12, padding: 16, color: "#c8102e", fontSize: 13 }}>⚠ {plays.error}</div>
             )}
-            {highPlays.length > 0 && (
-              <Section title="HIGH CONFIDENCE" accent="#c8102e" badge={highPlays.length} defaultOpen={true}>
-                <div style={{ paddingTop: 10 }}>
-                  {highPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
-                </div>
-              </Section>
+
+            {/* 🔥 legend */}
+            {normalizedPlays.length > 0 && (
+              <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>🔥</span><span>= on a hot streak recently</span>
+                <span style={{ marginLeft: 8 }}>· Sorted by game time (CT)</span>
+              </div>
             )}
-            {medPlays.length > 0 && (
-              <Section title="SOLID PLAYS" accent="#f59e0b" badge={medPlays.length} defaultOpen={true}>
-                <div style={{ paddingTop: 10 }}>
-                  {medPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
+
+            {/* Game groups */}
+            {gameGroups.map(group => {
+              const sortedPlays = [...group.plays].sort((a, b) => (confOrder[a.confidence] ?? 9) - (confOrder[b.confidence] ?? 9));
+              const highCount  = sortedPlays.filter(p => p.confidence === "HIGH").length;
+              const medCount   = sortedPlays.filter(p => p.confidence === "MED").length;
+              const watchCount = sortedPlays.filter(p => p.confidence === "WATCH").length;
+              const timeStr = fmtGameTime(group.gameTime);
+
+              return (
+                <div key={group.key} style={{ marginBottom: 20 }}>
+                  {/* Game header */}
+                  <div style={{ background: "#1a2f5e", borderRadius: "10px 10px 0 0", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{group.key.replace("@", " @ ")}</div>
+                      {timeStr && <div style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginTop: 1 }}>{timeStr}</div>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      {highCount > 0  && <span style={{ fontSize: 10, fontWeight: 700, color: "#fff", background: "#c8102e", borderRadius: 8, padding: "2px 7px" }}>{highCount} HIGH</span>}
+                      {medCount > 0   && <span style={{ fontSize: 10, fontWeight: 700, color: "#92400e", background: "#fef3c7", borderRadius: 8, padding: "2px 7px" }}>{medCount} MED</span>}
+                      {watchCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 8, padding: "2px 7px" }}>{watchCount} WATCH</span>}
+                    </div>
+                  </div>
+                  {/* Cards */}
+                  <div style={{ background: "#fff", borderRadius: "0 0 10px 10px", border: "1px solid #e5e7eb", borderTop: "none", padding: "8px 8px 4px" }}>
+                    {sortedPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
+                  </div>
                 </div>
-              </Section>
-            )}
-            {watchPlays.length > 0 && (
-              <Section title="PROCEED WITH CAUTION" accent="#3b82f6" badge={watchPlays.length} defaultOpen={false}>
-                <div style={{ paddingTop: 10 }}>
-                  {watchPlays.map((p, i) => <PlayCard key={i} p={p} onPlayerClick={handlePlayerClick} />)}
-                </div>
-              </Section>
-            )}
+              );
+            })}
+
             {!plays.loading && normalizedPlays.length === 0 && !plays.error && (
               <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: 14 }}>No plays available yet.</div>
             )}
@@ -1022,26 +1012,21 @@ export default function App() {
             <div>
               {dedupedYest.map((hr, i) => (
                 <div key={hr.id || i} onClick={() => hr.playerId && handlePlayerClick({ playerId: hr.playerId, playerName: hr.player })}
-                  style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 0", borderBottom: i < dedupedYest.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
-                  <div style={{ width: 34, height: 34, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 16 }}>💥</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#111827" }}>{hr.player}</div>
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < dedupedYest.length - 1 ? "1px solid #f3f4f6" : "none", cursor: hr.playerId ? "pointer" : "default" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: 14 }}>💥</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "#111827" }}>{hr.player}</div>
                       {hr.count > 1 && <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "#c8102e", borderRadius: 10, padding: "1px 7px" }}>{hr.count}x</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 4 }}>
-                      {hr.team && <span style={{ fontWeight: 600, color: "#374151" }}>{hr.team}</span>}
+                    <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1 }}>
+                      {hr.team ? <span style={{ fontWeight: 600, color: "#374151" }}>{hr.team}</span> : ""}
                       {hr.opponent ? ` vs ${hr.opponent}` : ""}
                       {hr.inning ? ` · Inn. ${hr.inning}` : ""}
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {hr.distance && <span style={{ fontSize: 10, fontWeight: 600, color: "#374151", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>📏 {fmt(hr.distance)} ft</span>}
-                      {hr.exitVelo && <span style={{ fontSize: 10, fontWeight: 600, color: "#374151", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>⚡ {fmt(hr.exitVelo)} mph</span>}
-                      {hr.launchAngle != null && <span style={{ fontSize: 10, fontWeight: 600, color: "#374151", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>📐 {hr.launchAngle}°</span>}
-                      {hr.pitcher && <span style={{ fontSize: 10, color: "#6b7280", background: "#f3f4f6", borderRadius: 5, padding: "2px 6px" }}>Pitcher: {hr.pitcher}</span>}
+                      {hr.distance ? ` · ${fmt(hr.distance)} ft` : ""}
                     </div>
                   </div>
-                  {hr.seasonHRs && <div style={{ textAlign: "right", flexShrink: 0 }}><div style={{ fontSize: 22, fontWeight: 800, color: "#c8102e", lineHeight: 1 }}>{hr.seasonHRs}</div><div style={{ fontSize: 9, color: "#9ca3af" }}>HR</div></div>}
+                  {hr.seasonHRs && <div style={{ textAlign: "right" }}><div style={{ fontSize: 20, fontWeight: 800, color: "#c8102e" }}>{hr.seasonHRs}</div><div style={{ fontSize: 9, color: "#9ca3af" }}>HR</div></div>}
                 </div>
               ))}
             </div>

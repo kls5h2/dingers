@@ -192,7 +192,6 @@ async function getGameHRs(gamePk) {
         distance:    p.hitData?.totalDistance || null,
         exitVelo:    p.hitData?.launchSpeed   || null,
         launchAngle: p.hitData?.launchAngle   || null,
-        pitcher:     p.matchup?.pitcher?.fullName || null,
         description: p.result?.description    || "",
         timestamp:   p.about?.endTime         || new Date().toISOString(),
         seasonHRs:   null,
@@ -647,26 +646,19 @@ app.get("/api/player-profile/:playerId", async (req, res) => {
     const gamesPlayed = parseInt(season?.gamesPlayed || 1);
     const seasonHRper7 = ((seasonHR / gamesPlayed) * 7).toFixed(2);
 
-    // Hot/cold classification — combined: pace (L7 vs season avg) + recency (days since last HR)
+    // Hot/cold classification
     let streak = "NEUTRAL";
-    const pace = parseFloat(seasonHRper7);
-    const abovePace = pace > 0 && last7HRs > pace * 1.3;
-    const onPace    = pace > 0 && last7HRs >= pace * 0.7;
-    const recent    = daysSinceLastHR >= 0 && daysSinceLastHR <= 3;
-    const stale     = daysSinceLastHR < 0 || daysSinceLastHR >= 7;
-
-    if (abovePace && recent)        streak = "HOT";
-    else if (abovePace || recent)   streak = "WARM";
-    else if (!onPace && stale)      streak = "COLD";
-    else                             streak = "NEUTRAL";
+    if (last7HRs > parseFloat(seasonHRper7) * 1.5) streak = "HOT";
+    else if (last7HRs === 0 && daysSinceLastHR > 7) streak = "COLD";
+    else if (last7HRs >= 2) streak = "WARM";
 
     // Find today's game + pitcher
-    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue,weather`);
+    const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue,weather,lineups`);
     const schedGames = schedData.dates?.[0]?.games || [];
     const teamId = person?.currentTeam?.id;
+    const teamAbbr = person?.currentTeam?.abbreviation;
     const bats = person?.batSide?.code || "?";
 
-    const teamAbbr = person?.currentTeam?.abbreviation;
     const todayGame = schedGames.find(g =>
       g.teams?.away?.team?.id === teamId ||
       g.teams?.home?.team?.id === teamId ||
@@ -887,8 +879,6 @@ app.get("/api/game/:gamePk", async (req, res) => {
           half:     p.about?.halfInning,
           distance: p.hitData?.totalDistance ? Math.round(p.hitData.totalDistance) : null,
           exitVelo: p.hitData?.launchSpeed   ? Math.round(p.hitData.launchSpeed)   : null,
-          launchAngle: p.hitData?.launchAngle ? Math.round(p.hitData.launchAngle) : null,
-          pitcher: p.matchup?.pitcher?.fullName || null,
           description: p.result?.description || "",
         };
       });
@@ -1242,17 +1232,16 @@ async function generatePlays(today, todayHRs) {
       const awayHitterStr = awayHitters.map(fmtHitter).join(" | ");
       const homeHitterStr = homeHitters.map(fmtHitter).join(" | ");
 
-      gameContexts.push(
-        `${awayAbb}@${homeAbb} at ${venue}(park ${parkF})
-` +
-        `  Away SP: ${fmtPitcher(awayPP, awayPitcher)}
-` +
-        `  Home SP: ${fmtPitcher(homePP, homePitcher)}
-` +
-        `  ${awayAbb} hitters: ${awayHitterStr || "none"}
-` +
-        `  ${homeAbb} hitters: ${homeHitterStr || "none"}`
-      );
+      gameContexts.push({
+        key: `${awayAbb}@${homeAbb}`,
+        gameTime: g.gameDate,
+        gamePk: g.gamePk,
+        text: `${awayAbb}@${homeAbb} at ${venue}(park ${parkF}) gameTime:${g.gameDate}
+  Away SP: ${fmtPitcher(awayPP, awayPitcher)}
+  Home SP: ${fmtPitcher(homePP, homePitcher)}
+  ${awayAbb} hitters: ${awayHitterStr || "none"}
+  ${homeAbb} hitters: ${homeHitterStr || "none"}`
+      });
     }
 
     // ── Step 6: Build prompt with all real data ───────────────────────────
@@ -1260,7 +1249,14 @@ async function generatePlays(today, todayHRs) {
       ? `EXCLUDE — already hit HR today: ${todayHRs.map(h => h.player).join(", ")}`
       : "";
 
-    const gamesStr = gameContexts.join("\n\n");
+    const gamesStr = gameContexts.map(g => g.text).join("\n\n");
+    // Build a lookup for gameTime by team key
+    const gameTimeLookup = {};
+    for (const g of gameContexts) {
+      const [away, home] = g.key.split("@");
+      gameTimeLookup[away] = { gameKey: g.key, gameTime: g.gameTime, gamePk: g.gamePk };
+      gameTimeLookup[home] = { gameKey: g.key, gameTime: g.gameTime, gamePk: g.gamePk };
+    }
     console.log("[plays] all data pulled. Games:", games.length, "Hitters cached:", Object.keys(hitterCache).length, "Pitchers cached:", Object.keys(pitcherCache).length);
 
     const result = await callClaude(
@@ -1289,10 +1285,19 @@ CONFIDENCE RULES (based purely on numbers above):
 - Do NOT guess any stat — only use numbers provided above
 - Only include players in today's games listed above
 
-Return JSON only — no markdown, start with {: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
+For the "note" field (WHY): Write 2-3 plain English sentences a casual fan can understand. Lead with the batter's hand and what that means vs today's pitcher. Explain the power rate and recent form in plain terms. Example: "Bats left, which is his stronger side against right-handed pitchers — and today he faces a righty. He's been crushing it lately with 3 HRs in the last 14 games. The pitcher has been giving up home runs at an above-average rate this season."
+
+For the "concern" field: Write 1-2 plain English sentences about the biggest risk. Example: "His numbers against lefties are weak — only 2 home runs all season facing left-handed pitching. The park is neutral, so no extra help from the environment."
+
+Return JSON only — no markdown, start with {: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","batterHand":"L" or "R" or "S","gameKey":string,"gameTime":string,"last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
     , 6000);
 
+    // Attach gameTime/gamePk from our lookup in case Claude's gameKey is available
     if (result?.plays) {
+      result.plays = result.plays.map(p => {
+        const g = gameTimeLookup[p.team] || gameTimeLookup[p.opponent] || {};
+        return { ...p, gameKey: p.gameKey || g.gameKey, gameTime: p.gameTime || g.gameTime, gamePk: p.gamePk || g.gamePk };
+      });
       playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
       console.log("[plays] generated", result.plays.length, "plays. Hitters pulled:", Object.keys(hitterCache).length);
     }
