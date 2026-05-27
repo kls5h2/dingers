@@ -1414,19 +1414,14 @@ async function callClaude(prompt, maxTokens = 2000) {
       model: "claude-sonnet-4-6",
       max_tokens: maxTokens,
       system: "You are an MLB analytics expert. Respond with ONLY a raw JSON object. No markdown fences, no ```json, no explanation, no preamble. Start with { end with }. Nothing else.",
-      messages: [
-        { role: "user", content: prompt },
-        { role: "assistant", content: "{" },
-      ],
+      messages: [{ role: "user", content: prompt }],
     }),
   });
   const data = await resp.json();
   if (data.error) throw new Error(data.error.message);
   let text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
   console.log("[claude raw]", text.slice(0, 200));
-  // Prepend the { we used as prefill
-  text = "{" + text;
-  // Strip any markdown or prose
+  // Strip markdown fences
   text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
   // Find outermost { }
   const start = text.indexOf("{");
@@ -1437,16 +1432,12 @@ async function callClaude(prompt, maxTokens = 2000) {
     else if (text[i] === "}") {
       depth--;
       if (depth === 0) {
-        try {
-          return JSON.parse(text.slice(start, i + 1));
-        } catch(parseErr) {
-          console.error("[JSON parse attempt failed]", parseErr.message);
-        }
+        try { return JSON.parse(text.slice(start, i + 1)); }
+        catch(e) { console.error("[JSON parse failed]", e.message); }
       }
     }
   }
-  // Last resort
-  try { return JSON.parse(text); } catch {}
+  try { return JSON.parse(text.slice(start)); } catch {}
   throw new Error("Malformed JSON: " + text.slice(0, 200));
 }
 
