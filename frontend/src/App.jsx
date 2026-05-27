@@ -294,8 +294,8 @@ function Conditions({ games, parkData }) {
     !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.city || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  const factorColor = (f) => f >= 110 ? "#c8102e" : f >= 105 ? "#b45309" : f <= 90 ? "#1e40af" : f <= 95 ? "#3b82f6" : "#6b7280";
-  const factorBg    = (f) => f >= 110 ? "#fef2f2" : f >= 105 ? "#fffbeb" : f <= 90 ? "#eff6ff" : f <= 95 ? "#eff6ff" : "#f9fafb";
+  const factorColor = (f) => f >= 110 ? "#059669" : f >= 105 ? "#16a34a" : f <= 90 ? "#c8102e" : f <= 95 ? "#dc2626" : "#2563eb";
+  const factorBg    = (f) => f >= 110 ? "#f0fdf4" : f >= 105 ? "#f0fdf4" : f <= 90 ? "#fef2f2" : f <= 95 ? "#fef2f2" : "#eff6ff";
   const factorLabel = (f) => f >= 110 ? "BOOST+" : f >= 105 ? "BOOST" : f <= 90 ? "SUPPRESS+" : f <= 95 ? "SUPPRESS" : "NEUTRAL";
 
   // Build sheet info for a today park
@@ -309,8 +309,8 @@ function Conditions({ games, parkData }) {
     const overall  = (windOut || parkHot) && !windIn && !parkDead ? "BOOST"
       : (windIn || parkDead) && !windOut && !parkHot ? "SUPPRESS"
       : (windOut || parkHot) ? "BOOST" : parkDead ? "SUPPRESS" : "NEUTRAL";
-    const col = { BOOST: "#059669", SUPPRESS: "#c8102e", NEUTRAL: "#6b7280" };
-    const bg  = { BOOST: "#f0fdf4", SUPPRESS: "#fef2f2", NEUTRAL: "#f9fafb" };
+    const col = { BOOST: "#059669", SUPPRESS: "#c8102e", NEUTRAL: "#2563eb" };
+    const bg  = { BOOST: "#f0fdf4", SUPPRESS: "#fef2f2", NEUTRAL: "#eff6ff" };
     const gameTime = game?.gameTime
       ? new Date(game.gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) + " CT"
       : "";
@@ -329,7 +329,7 @@ function Conditions({ games, parkData }) {
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-        {[["BOOST+", "#fef2f2", "#c8102e"], ["BOOST", "#fffbeb", "#b45309"], ["NEUTRAL", "#f9fafb", "#6b7280"], ["SUPPRESS", "#eff6ff", "#3b82f6"], ["SUPPRESS+", "#eff6ff", "#1e40af"]].map(([label, bg, color]) => (
+        {[["BOOST+", "#f0fdf4", "#059669"], ["BOOST", "#f0fdf4", "#16a34a"], ["NEUTRAL", "#eff6ff", "#2563eb"], ["SUPPRESS", "#fef2f2", "#dc2626"], ["SUPPRESS+", "#fef2f2", "#c8102e"]].map(([label, bg, color]) => (
           <span key={label} style={{ fontSize: 9, fontWeight: 700, color, background: bg, border: `1px solid ${color}33`, borderRadius: 6, padding: "2px 6px" }}>{label}</span>
         ))}
         <span style={{ fontSize: 9, color: "#9ca3af", alignSelf: "center" }}>· Tap today's games for details</span>
@@ -665,52 +665,30 @@ function DeepDive({ playerId, playerName, onClose }) {
           </div>
         )}
 
-        {/* ── Zone 1: Current streak + 30-day dot row ── */}
+        {/* ── Zone 1: Streak block ── */}
         <div style={{ background: streakBgCol, borderRadius: 12, padding: "12px 14px", marginBottom: 12, border: `1px solid ${streakColor}22` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <span style={{ fontSize: 11, fontWeight: 700, color: streakColor, letterSpacing: "0.1em" }}>
                 {streak?.status === "HOT" ? "🔥 HOT STREAK" : streak?.status === "WARM" ? "📈 WARMING UP" : streak?.status === "COLD" ? "❄️ COLD STRETCH" : "📊 NEUTRAL"}
               </span>
-              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                {streak?.daysSinceLastHR === 0 ? "Hit today" :
-                 streak?.daysSinceLastHR > 0 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
+              <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3 }}>
+                {streak?.daysSinceLastHR === 0 ? "Last HR: Today" :
+                 streak?.daysSinceLastHR === 1 ? "Last HR: Yesterday" :
+                 streak?.daysSinceLastHR > 1 ? `Last HR: ${streak.daysSinceLastHR} days ago` : "No HR in 30 days"}
+              </div>
+              <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>
+                Season avg: {streak?.seasonHRper7?.toFixed(1)} HR / 7 games
               </div>
             </div>
-            <div style={{ display: "flex", gap: 12, textAlign: "center" }}>
+            <div style={{ display: "flex", gap: 16, textAlign: "center" }}>
               {[["L7", streak?.last7HRs], ["L14", streak?.last14HRs], ["L30", streak?.last30HRs]].map(([label, val]) => (
                 <div key={label}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af" }}>{val}</div>
-                  <div style={{ fontSize: 9, color: "#9ca3af" }}>{label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: val > 0 ? streakColor : "#9ca3af", lineHeight: 1 }}>{val ?? "—"}</div>
+                  <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 2 }}>{label}</div>
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* 30-day dot strip */}
-          <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
-            {(streak?.last30days || []).slice(0, 30).reverse().map((day, i) => {
-              const d = new Date(day.date + "T12:00:00");
-              const label = d.getDate();
-              return (
-                <div key={i} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                  <div style={{
-                    width: day.hrs > 1 ? 14 : 10, height: day.hrs > 1 ? 14 : 10,
-                    borderRadius: "50%",
-                    background: day.hrs > 0 ? streakColor : day.played ? "#e5e7eb" : "transparent",
-                    border: day.played && day.hrs === 0 ? "1px solid #e5e7eb" : "none",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 7, fontWeight: 700, color: "#fff",
-                  }}>
-                    {day.hrs > 1 ? day.hrs : ""}
-                  </div>
-                  {i % 7 === 0 && <div style={{ fontSize: 7, color: "#d1d5db" }}>{label}</div>}
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 9, color: "#9ca3af", marginTop: 6 }}>
-            Season avg: {streak?.seasonHRper7?.toFixed(1)} HR/7 games · Last 7: {streak?.last7HRs}
           </div>
         </div>
 
