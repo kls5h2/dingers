@@ -647,10 +647,16 @@ app.get("/api/player-profile/:playerId", async (req, res) => {
     const seasonHRper7 = ((seasonHR / gamesPlayed) * 7).toFixed(2);
 
     // Hot/cold classification
+    const pace = parseFloat(seasonHRper7);
+    const abovePace = pace > 0 && last7HRs > pace * 1.5;  // tightened: 1.5× (was 1.3×)
+    const onPace    = pace > 0 && last7HRs >= pace * 0.7;
+    const recent    = daysSinceLastHR >= 0 && daysSinceLastHR <= 2;  // tightened: 2 days (was 3)
+    const stale     = daysSinceLastHR < 0 || daysSinceLastHR >= 7;
+
     let streak = "NEUTRAL";
-    if (last7HRs > parseFloat(seasonHRper7) * 1.5) streak = "HOT";
-    else if (last7HRs === 0 && daysSinceLastHR > 7) streak = "COLD";
-    else if (last7HRs >= 2) streak = "WARM";
+    if (abovePace && recent)       streak = "HOT";
+    else if (abovePace || recent)  streak = "WARM";
+    else if (!onPace && stale)     streak = "COLD";
 
     // Find today's game + pitcher
     const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue,weather`);
