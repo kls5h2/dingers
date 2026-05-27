@@ -294,8 +294,8 @@ function Conditions({ games, parkData }) {
     !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.city || "").toLowerCase().includes(search.toLowerCase())
   );
 
-  const factorColor = (f) => f >= 110 ? "#059669" : f >= 105 ? "#16a34a" : f <= 90 ? "#c8102e" : f <= 95 ? "#dc2626" : "#2563eb";
-  const factorBg    = (f) => f >= 110 ? "#f0fdf4" : f >= 105 ? "#f0fdf4" : f <= 90 ? "#fef2f2" : f <= 95 ? "#fef2f2" : "#eff6ff";
+  const factorColor = (f) => f >= 110 ? "#059669" : f >= 105 ? "#2563eb" : f <= 90 ? "#c8102e" : f <= 95 ? "#ea580c" : "#6b7280";
+  const factorBg    = (f) => f >= 110 ? "#f0fdf4" : f >= 105 ? "#eff6ff" : f <= 90 ? "#fef2f2" : f <= 95 ? "#fff7ed" : "#f9fafb";
   const factorLabel = (f) => f >= 110 ? "BOOST+" : f >= 105 ? "BOOST" : f <= 90 ? "SUPPRESS+" : f <= 95 ? "SUPPRESS" : "NEUTRAL";
 
   // Build sheet info for a today park
@@ -309,8 +309,8 @@ function Conditions({ games, parkData }) {
     const overall  = (windOut || parkHot) && !windIn && !parkDead ? "BOOST"
       : (windIn || parkDead) && !windOut && !parkHot ? "SUPPRESS"
       : (windOut || parkHot) ? "BOOST" : parkDead ? "SUPPRESS" : "NEUTRAL";
-    const col = { BOOST: "#059669", SUPPRESS: "#c8102e", NEUTRAL: "#2563eb" };
-    const bg  = { BOOST: "#f0fdf4", SUPPRESS: "#fef2f2", NEUTRAL: "#eff6ff" };
+    const col = { BOOST: "#059669", SUPPRESS: "#ea580c", NEUTRAL: "#6b7280" };
+    const bg  = { BOOST: "#f0fdf4", SUPPRESS: "#fff7ed", NEUTRAL: "#f9fafb" };
     const gameTime = game?.gameTime
       ? new Date(game.gameTime).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }) + " CT"
       : "";
@@ -329,7 +329,7 @@ function Conditions({ games, parkData }) {
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-        {[["BOOST+", "#f0fdf4", "#059669"], ["BOOST", "#f0fdf4", "#16a34a"], ["NEUTRAL", "#eff6ff", "#2563eb"], ["SUPPRESS", "#fef2f2", "#dc2626"], ["SUPPRESS+", "#fef2f2", "#c8102e"]].map(([label, bg, color]) => (
+        {[["BOOST+", "#f0fdf4", "#059669"], ["BOOST", "#eff6ff", "#2563eb"], ["NEUTRAL", "#f9fafb", "#6b7280"], ["SUPPRESS", "#fff7ed", "#ea580c"], ["SUPPRESS+", "#fef2f2", "#c8102e"]].map(([label, bg, color]) => (
           <span key={label} style={{ fontSize: 9, fontWeight: 700, color, background: bg, border: `1px solid ${color}33`, borderRadius: 6, padding: "2px 6px" }}>{label}</span>
         ))}
         <span style={{ fontSize: 9, color: "#9ca3af", alignSelf: "center" }}>· Tap today's games for details</span>
