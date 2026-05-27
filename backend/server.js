@@ -646,28 +646,49 @@ app.get("/api/player-profile/:playerId", async (req, res) => {
     const gamesPlayed = parseInt(season?.gamesPlayed || 1);
     const seasonHRper7 = ((seasonHR / gamesPlayed) * 7).toFixed(2);
 
-    // Hot/cold classification
+    // Hot/cold classification — combined pace + recency
     const pace = parseFloat(seasonHRper7);
-    const abovePace = pace > 0 && last7HRs > pace * 1.5;  // tightened: 1.5× (was 1.3×)
+    const abovePace = pace > 0 && last7HRs > pace * 1.5;
     const onPace    = pace > 0 && last7HRs >= pace * 0.7;
-    const recent    = daysSinceLastHR >= 0 && daysSinceLastHR <= 2;  // tightened: 2 days (was 3)
+    const recent    = daysSinceLastHR >= 0 && daysSinceLastHR <= 2;
     const stale     = daysSinceLastHR < 0 || daysSinceLastHR >= 7;
-
     let streak = "NEUTRAL";
     if (abovePace && recent)       streak = "HOT";
     else if (abovePace || recent)  streak = "WARM";
     else if (!onPace && stale)     streak = "COLD";
 
-    // Find today's game + pitcher
+    // Find today's game — try teamId first, then check all rosters as fallback
     const schedData = await mlb(`/schedule?sportId=1&date=${today}&hydrate=probablePitcher,team,venue,weather`);
     const schedGames = schedData.dates?.[0]?.games || [];
     const teamId = person?.currentTeam?.id;
+    const teamAbbr = person?.currentTeam?.abbreviation;
     const bats = person?.batSide?.code || "?";
 
-    const todayGame = schedGames.find(g =>
+    let todayGame = schedGames.find(g =>
       g.teams?.away?.team?.id === teamId ||
-      g.teams?.home?.team?.id === teamId
+      g.teams?.home?.team?.id === teamId ||
+      (teamAbbr && (
+        g.teams?.away?.team?.abbreviation === teamAbbr ||
+        g.teams?.home?.team?.abbreviation === teamAbbr
+      ))
     );
+
+    // Fallback: check each game's roster for this player
+    if (!todayGame) {
+      for (const g of schedGames) {
+        try {
+          const awayId = g.teams?.away?.team?.id;
+          const homeId = g.teams?.home?.team?.id;
+          const [awayRoster, homeRoster] = await Promise.all([
+            awayId ? mlb(`/teams/${awayId}/roster?rosterType=active`) : Promise.resolve(null),
+            homeId ? mlb(`/teams/${homeId}/roster?rosterType=active`) : Promise.resolve(null),
+          ]);
+          const onAway = awayRoster?.roster?.some(p => String(p.person?.id) === String(playerId));
+          const onHome = homeRoster?.roster?.some(p => String(p.person?.id) === String(playerId));
+          if (onAway || onHome) { todayGame = g; break; }
+        } catch {}
+      }
+    }
 
     let matchup = null;
     if (todayGame) {
@@ -1127,9 +1148,11 @@ async function generatePlays(today, todayHRs) {
         const result = {
           name: pp.fullName,
           hand,
-          hr9:       s?.homeRunsPer9 ? parseFloat(s.homeRunsPer9).toFixed(2) : "?",
-          vsLHB_hr9: sl?.homeRunsPer9 ? parseFloat(sl.homeRunsPer9).toFixed(2) : "?",
-          vsRHB_hr9: sr?.homeRunsPer9 ? parseFloat(sr.homeRunsPer9).toFixed(2) : "?",
+          era:    s?.era    || "?",
+          whip:   s?.whip   || "?",
+          hr9:    s?.homeRunsPer9 ? parseFloat(s.homeRunsPer9).toFixed(2) : "?",
+          vsLHB:  sl ? `avg ${sl.avg || "?"} HR/9 ${sl.homeRunsPer9 ? parseFloat(sl.homeRunsPer9).toFixed(2) : "?"}` : "?",
+          vsRHB:  sr ? `avg ${sr.avg || "?"} HR/9 ${sr.homeRunsPer9 ? parseFloat(sr.homeRunsPer9).toFixed(2) : "?"}` : "?",
         };
         pitcherCache[pp.id] = result;
         return result;
@@ -1201,53 +1224,7 @@ async function generatePlays(today, todayHRs) {
       } catch { return []; }
     }
 
-    // ── Step 4: Collect ALL hitters across all games, rank globally ──────────
-    // Fetch all teams first, dedupe by playerId
-    const allTeamIds = new Set();
-    for (const g of games) {
-      if (g.teams?.away?.team?.id) allTeamIds.add(g.teams.away.team.id);
-      if (g.teams?.home?.team?.id) allTeamIds.add(g.teams.home.team.id);
-    }
-
-    const allHittersMap = {}; // playerId -> hitter data
-    await Promise.all([...allTeamIds].map(async (teamId) => {
-      try {
-        const roster = await mlb(`/teams/${teamId}/roster?rosterType=active`);
-        const posPlayers = (roster.roster || []).filter(p => !["P","TWP"].includes(p.position?.type));
-        for (let i = 0; i < posPlayers.length; i += 4) {
-          const batch = posPlayers.slice(i, i + 4);
-          const results = await Promise.all(batch.map(p => getRealHitterData(p.person.id, p.person.fullName)));
-          for (const h of results.filter(Boolean)) allHittersMap[h.playerId] = h;
-          await new Promise(r => setTimeout(r, 80));
-        }
-      } catch {}
-    }));
-
-    // Score each hitter by HR potential, take top 25
-    const scoreHitter = (h) => {
-      let score = 0;
-      const abhr = parseFloat(h.abPerHR);
-      if (!isNaN(abhr)) score += abhr < 12 ? 5 : abhr < 16 ? 3 : abhr < 20 ? 1 : 0;
-      const woba = parseFloat(h.woba);
-      if (!isNaN(woba)) score += woba > .400 ? 4 : woba > .370 ? 3 : woba > .340 ? 1 : 0;
-      score += Math.min(h.seasonHR / 5, 4);
-      return score;
-    };
-    const top25 = Object.values(allHittersMap)
-      .sort((a, b) => scoreHitter(b) - scoreHitter(a))
-      .slice(0, 25);
-
-    // ── Step 5: Build lean game context (pitchers + park only) ───────────────
-    const fmtPitcher = (pp, stats) => {
-      if (!pp && !stats) return "TBD";
-      const name = stats?.name || pp?.fullName || "TBD";
-      if (!stats) return `${name}(hand:?,HR9:?)`;
-      return `${name}(${stats.hand},HR9:${stats.hr9},vsL_HR9:${stats.vsLHB_hr9 || "?"},vsR_HR9:${stats.vsRHB_hr9 || "?"})`;
-    };
-
-    const fmtHitter = (h) =>
-      `${h.name}(${h.bats},${h.seasonHR}HR,AB/HR:${h.abPerHR},wOBA:${h.woba},vsL:${h.vsLHP_HR},vsR:${h.vsRHP_HR})`;
-
+    // ── Step 4: Build game contexts with all real data ──────────────────────
     const gameContexts = [];
     for (const g of games) {
       const awayAbb = g.teams?.away?.team?.abbreviation || "?";
@@ -1257,72 +1234,77 @@ async function generatePlays(today, todayHRs) {
       const awayPP  = g.teams?.away?.probablePitcher;
       const homePP  = g.teams?.home?.probablePitcher;
 
-      const [awayPitcher, homePitcher] = await Promise.all([
+      const [awayPitcher, homePitcher, awayHitters, homeHitters] = await Promise.all([
         getRealPitcherData(awayPP),
         getRealPitcherData(homePP),
+        g.teams?.away?.team?.id ? getTeamHitters(g.teams.away.team.id) : [],
+        g.teams?.home?.team?.id ? getTeamHitters(g.teams.home.team.id) : [],
       ]);
 
-      gameContexts.push({
-        key: `${awayAbb}@${homeAbb}`,
-        gameTime: g.gameDate,
-        gamePk: g.gamePk,
-        text: `${awayAbb}@${homeAbb} park:${parkF} gameTime:${g.gameDate} AwayP:${fmtPitcher(awayPP, awayPitcher)} HomeP:${fmtPitcher(homePP, homePitcher)}`
-      });
+      const fmtPitcher = (pp, stats) => {
+        if (!pp && !stats) return "TBD";
+        const name = stats?.name || pp?.fullName || "TBD";
+        if (!stats) return name;
+        return `${name}(${stats.hand},ERA:${stats.era},HR9:${stats.hr9})`;
+      };
+
+      const fmtHitter = (h) =>
+        `${h.name}(${h.bats},${h.seasonHR}HR,AB/HR:${h.abPerHR},wOBA:${h.woba},L14:${h.last14HR},vsL:${h.vsLHP_HR},vsR:${h.vsRHP_HR})`;
+
+      const awayHitterStr = awayHitters.map(fmtHitter).join(" | ");
+      const homeHitterStr = homeHitters.map(fmtHitter).join(" | ");
+
+      gameContexts.push(
+        `${awayAbb}@${homeAbb} at ${venue}(park ${parkF})
+` +
+        `  Away SP: ${fmtPitcher(awayPP, awayPitcher)}
+` +
+        `  Home SP: ${fmtPitcher(homePP, homePitcher)}
+` +
+        `  ${awayAbb} hitters: ${awayHitterStr || "none"}
+` +
+        `  ${homeAbb} hitters: ${homeHitterStr || "none"}`
+      );
     }
 
-    const top25Str = top25.map(fmtHitter).join("\n");
-    const gamesStr = gameContexts.map(g => g.text).join("\n");
-
-    // ── Step 6: Build prompt ──────────────────────────────────────────────────
+    // ── Step 6: Build prompt with all real data ───────────────────────────
     const alreadyHit = todayHRs.length
       ? `EXCLUDE — already hit HR today: ${todayHRs.map(h => h.player).join(", ")}`
       : "";
-    const gameTimeLookup = {};
-    for (const g of gameContexts) {
-      const [away, home] = g.key.split("@");
-      gameTimeLookup[away] = { gameKey: g.key, gameTime: g.gameTime, gamePk: g.gamePk };
-      gameTimeLookup[home] = { gameKey: g.key, gameTime: g.gameTime, gamePk: g.gamePk };
-    }
-    console.log("[plays] all data pulled. Games:", games.length, "Top hitters:", top25.length, "Pitchers cached:", Object.keys(pitcherCache).length);
 
-    const prompt = `Today ${today}. Data below is REAL from MLB Stats API. Use ONLY these numbers.
+    const gamesStr = gameContexts.join("\n\n");
+    console.log("[plays] all data pulled. Games:", games.length, "Hitters cached:", Object.keys(hitterCache).length, "Pitchers cached:", Object.keys(pitcherCache).length);
 
-GAMES (away@home park:factor gameTime awayPitcher homeP):
+    const result = await callClaude(
+      `Today ${today}. All data below is REAL — from MLB Stats API pulled today. Do NOT use your training data for player stats. Only use the numbers provided.
+
+REAL GAME DATA (pitcher ERA/HR9/splits + hitter HR/AVG/OPS/ISO/last7HR/vsL/vsR):
 ${gamesStr}
-
-TOP HR CANDIDATES (name, bats, seasonHR, AB/HR, wOBA, vsLHP_HRs, vsRHP_HRs):
-${top25Str}
 
 ${alreadyHit}
 
-Each hitter plays in one of the games above — match them by team abbreviation.
-Pick best HR props. A hitter facing the AWAY pitcher bats against the home team's SP, and vice versa.
+PICK the best HR props using ONLY the real data above.
 
-RANKING (in order):
-1. AB/HR < 12 = elite, < 16 = strong, > 25 = avoid
-2. wOBA > .370 = quality contact, < .300 = avoid
-3. Handedness — match bats vs pitcher hand using vsL/vsR HR counts
-4. Pitcher HR/9 > 1.5 = vulnerable, < 0.8 = avoid
-5. Park factor > 108 = boost, < 92 = suppress
+RANKING LOGIC (use in this order):
+1. AB/HR rate — lower is better. Under 12 = elite power. 12-18 = strong. Over 25 = not a power threat today
+2. wOBA — over .370 = quality contact maker. Under .300 = avoid
+3. Handedness split — match hitter's stronger side vs pitcher (vsL or vsR stats show this)
+4. Pitcher HR/9 — over 1.5 = vulnerable. Under 0.8 = avoid regardless
+5. Park factor — over 108 = meaningful boost. Under 92 = meaningful suppress
+6. L14 HR count — secondary signal for recent form, not primary
 
-CONFIDENCE:
-- HIGH: AB/HR < 15, wOBA > .370, pitcher HR9 > 1.3, park >= 95, handedness favors
-- MED: AB/HR < 20, wOBA > .330, 2+ other factors positive
-- WATCH: one strong factor + one real concern
-- Skip: AB/HR > 28 or wOBA < .300
+CONFIDENCE RULES (based purely on numbers above):
+- HIGH: AB/HR < 15 AND wOBA > .370 AND faces pitcher HR/9 > 1.3 AND park >= 95 AND handedness split favors hitter
+- MED: AB/HR < 20 AND wOBA > .330 AND at least 2 other factors positive
+- WATCH: one strong factor but one meaningful concern — name both explicitly
+- Do NOT include players with AB/HR > 28 or wOBA < .300
+- Do NOT guess any stat — only use numbers provided above
+- Only include players in today's games listed above
 
-WHY field: 2-3 plain English sentences. Lead with batter hand vs pitcher hand. Explain power rate and recent form simply.
-CONCERN field: 1-2 plain English sentences on biggest risk.
-
-Return JSON: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","batterHand":"L" or "R" or "S","gameKey":string,"gameTime":string,"last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`;
-
-    const result = await callClaude(prompt, 8000);
+Return JSON only — no markdown, start with {: {"plays":[{"player":string,"team":string,"opponent":string,"pitcher":string,"pitcherHand":"L" or "R","last7HRs":number,"parkFactor":number,"confidence":"HIGH" or "MED" or "WATCH","hotStreak":boolean,"note":string,"concern":string}]}`
+    , 6000);
 
     if (result?.plays) {
-      result.plays = result.plays.map(p => {
-        const g = gameTimeLookup[p.team] || gameTimeLookup[p.opponent] || {};
-        return { ...p, gameKey: p.gameKey || g.gameKey, gameTime: p.gameTime || g.gameTime, gamePk: p.gamePk || g.gamePk };
-      });
       playsCache = { date: today, data: result, hrCount: todayHRs.length, generating: false };
       console.log("[plays] generated", result.plays.length, "plays. Hitters pulled:", Object.keys(hitterCache).length);
     }
@@ -1382,7 +1364,7 @@ app.get("/api/ai/plays-cached", async (req, res) => {
 
   // No cache at all — wait for first generation (but with timeout)
   try {
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 90000));
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
     const result = await Promise.race([generatePlays(today, liveHRs), timeout]);
     return respondEnriched(result || { plays: [] });
   } catch(e) {
@@ -1421,8 +1403,12 @@ async function callClaude(prompt, maxTokens = 2000) {
   if (data.error) throw new Error(data.error.message);
   let text = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("");
   console.log("[claude raw]", text.slice(0, 200));
-  // Strip markdown fences
-  text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  // Strip any markdown or prose before/after JSON
+  text = text.replace(/```json\s*/g, "").replace(/```\s*/g, "");
+  // Remove any text before the first {
+  const firstBrace = text.indexOf("{");
+  if (firstBrace > 0) text = text.slice(firstBrace);
+  text = text.trim();
   // Find outermost { }
   const start = text.indexOf("{");
   if (start === -1) throw new Error("No JSON object in response");
@@ -1432,13 +1418,18 @@ async function callClaude(prompt, maxTokens = 2000) {
     else if (text[i] === "}") {
       depth--;
       if (depth === 0) {
-        try { return JSON.parse(text.slice(start, i + 1)); }
-        catch(e) { console.error("[JSON parse failed]", e.message); }
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch(parseErr) {
+          // Try to find next closing brace
+          console.error("[JSON parse attempt failed]", parseErr.message);
+        }
       }
     }
   }
-  try { return JSON.parse(text.slice(start)); } catch {}
-  throw new Error("Malformed JSON: " + text.slice(0, 200));
+  // Last resort: try parsing the whole cleaned text
+  try { return JSON.parse(text); } catch {}
+  throw new Error("Malformed JSON: " + text.slice(0, 100));
 }
 
 app.post("/api/ai/plays", async (req, res) => {

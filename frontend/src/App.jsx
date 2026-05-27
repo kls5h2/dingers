@@ -744,12 +744,11 @@ function DeepDive({ playerId, playerName, onClose }) {
         )}
 
         {/* ── Zone 3: Season stats grid ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
           {[
             ["AB/HR", season?.abPerHR ? parseFloat(season.abPerHR).toFixed(1) : "—"],
-            ["wOBA",  season?.woba    ? season.woba : "—"],
-            ["OPS",   season?.ops     || "—"],
-            ["ISO",   season?.iso     || "—"],
+            ["wOBA",  season?.woba ? parseFloat(season.woba).toFixed(3).replace(/^0/, "") : "—"],
+            ["OPS",   season?.ops || "—"],
           ].map(([label, val]) => (
             <div key={label} style={{ background: "#f9fafb", borderRadius: 10, padding: "9px 6px", textAlign: "center" }}>
               <div style={{ fontSize: 9, color: "#9ca3af", fontWeight: 600, letterSpacing: "0.1em", marginBottom: 4 }}>{label}</div>
@@ -1019,6 +1018,7 @@ export default function App() {
         {/* ── PLAYS TAB ── */}
         {tab === "plays" && (
           <>
+            <PlayerSearch onSelect={handlePlayerClick} />
             {plays.loading && (
               <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: 14 }}>Analyzing today's matchups...</div>
             )}
@@ -1055,7 +1055,6 @@ export default function App() {
         {/* ── STATS TAB ── */}
         {tab === "stats" && (
           <>
-            <PlayerSearch onSelect={handlePlayerClick} />
             {deepDive && <DeepDive playerId={deepDive.playerId} playerName={deepDive.playerName} onClose={() => setDeepDive(null)} />}
             <Section title="HR CONDITIONS" accent="#f59e0b" defaultOpen={true}>
               <Conditions games={gamesToday} parkData={parkData.data} />
